@@ -35,7 +35,7 @@ auto_detected = {
 ## 후반부 — Dead Zone + 기준점 + NetworkX [코드]
 
 ### 처리 순서
-1. 픽셀 → mm 변환
+1. 픽셀 → mm 변환 + ParsedDrawings.section에서 ceiling_height_mm 추출 (없으면 기본값 3000mm)
 2. floor_polygon.difference(inaccessible_rooms) → 배치 불가 영역 차감 (Issue 17)
 3. 내부 벽 → wall_linestring으로 space_data 추가 (Issue 17)
 4. Shapely → Dead Zone 생성
@@ -50,6 +50,6 @@ space_data 확정 저장 (코드용 수치 + Agent 3용 자연어 이중 구조)
 ## 규칙
 - 전반부 출력은 임시 — 사용자 마킹 UI에서 확인/수정 후에만 후반부 실행
 - "모르겠음" 선택 시 → disclaimer 등록
-- 파일 형식별 파싱은 FloorPlanParser 추상 클래스 어댑터에서만 처리 (claude.md 참조)
+- 파일 형식별 파싱은 FloorPlanParser 추상 클래스 어댑터에서만 처리. 어댑터 내부에서 도면 타입(평면도/단면도) 감지 → ParsedDrawings 스키마로 출력 (Issue 22)
 - Agent 프롬프트에 파일 형식명 직접 기재 금지
 - NetworkX 그래프 객체는 dict에 저장 금지 — 함수 내 변수로만 유지

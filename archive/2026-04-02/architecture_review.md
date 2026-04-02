@@ -1,6 +1,16 @@
 # 랜딩업 아키텍처 문서 비교 평가
 평가일: 2026-04-01
 
+> **2026-04-02 현재 해소 상태**
+> - ① relationships 제약 → Issue 14 (Shapely.distance)로 해소
+> - ② Agent 3 재호출 상한 → Issue 15 Deterministic Fallback + Circuit Breaker로 해소
+> - ③ blocking 기준 → placement_verification.md에 명시됨
+> - ① Issue 3 무한루프 → Issue 15로 해소
+> - ② Issue 6 중심점 오류 → Issue 17 Hybrid Sampling + Issue 21 Width Perpendicular로 해소
+> - ③ Issue 6/8 공존 → Issue 6 SUPERSEDED 표시됨
+> - ④ Issue 13 격자점 0개 → fallback 3개(중앙+양끝) 확정
+> - ⑤ 미결 수치 → step_mm ratio, zone 임계값은 여전히 도면 테스트 후 결정
+
 ---
 
 ## 평가 대상

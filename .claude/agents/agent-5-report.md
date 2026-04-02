@@ -12,8 +12,9 @@ report.md 스킬 기반으로 동작한다.
 
 ## 출력 포함 내용
 - source별 수치 표기 (브랜드 메뉴얼 추출 / 기본값 / 사용자 입력)
-- placed_because (Agent 3 기획 의도)
-- 코드 조정 사실 ("1차 지정 위치 X → 인접 구역 Y 자동 조정")
+- placed_because (Agent 3 기획 의도 서사)
+- adjustment_log (코드 위치 조정 발생 시 — "1차 지정 위치 X → Y 자동 조정 (거리: Nmm)")
+- source: "fallback" 오브젝트 목록 (Deterministic Fallback 배치 — Agent 3 기획 아님 명시)
 - 배치 불가 오브젝트 목록 + 사유
 - 면책 조항 (disclaimer)
 

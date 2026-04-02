@@ -104,7 +104,7 @@ def check_range(cls, v):
 - 자연어 그대로 보존 — 수치 변환하지 않음
 - 예: `"라이언과 춘식이를 떨어뜨릴 것"` → 그대로 저장
 - Agent 3 프롬프트에 전달 시 자연어 그대로 주입
-- 검증은 배치 완료 후 zone_label 비교로 수행 (architecture_decisions.md Issue 14)
+- 검증은 배치 완료 후 Shapely.distance < clearspace_mm 비교로 수행 (Issue 14 — zone_label 비교 기각)
 
 ---
 

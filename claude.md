@@ -35,10 +35,10 @@
 
 ### 에이전트
 
-- **LLM은 방향만**: Agent 3은 `placement_slot` + `direction` + `priority`만 결정. 좌표·mm값 출력 절대 금지
+- **LLM은 방향만**: Agent 3은 `zone_label` + `direction` + `priority`만 결정. 좌표·mm값 출력 절대 금지
 - **수치는 코드가**: Shapely/NetworkX가 `space_data` dict에서 키이름으로 수치 직접 조회
 - **Circuit Breaker**: 각 Agent 출력 → Pydantic 검증 → 실패 시 재시도, 최대 3회. 3회 실패 → 파이프라인 중단
-- **Agent 3 재호출**: 코드 레벨 위치 조정 실패 시에만 발생. 피드백에 `placed_objects` 필수 포함
+- **Agent 3 재호출**: cascade failure 감지 시에만 발생. 피드백은 Choke Point intersects로 추출한 f-string 요약문만 전달 — `placed_objects` JSON 전달 금지 (Issue 12)
 - **증분 검증**: 오브젝트 단위 배치 즉시 Shapely 충돌 + NetworkX 통로 체크. 일괄 검증 금지
 
 ---
@@ -79,6 +79,6 @@ FloorPlanParser (추상)
   └── ImageParser  ← OpenCV + Claude Vision
 ```
 
-- **공통 출력 스키마**: 모든 파서는 `ParsedFloorPlan` 공통 스키마로 정규화 후 Agent 2에 전달
+- **공통 출력 스키마**: 모든 파서는 `ParsedDrawings` 공통 스키마로 정규화 후 Agent 2에 전달 (Issue 22)
 - **DWG 주의**: 상업용 서버 환경에서 ODA File Converter 무료 사용 불가. DXF 직접 업로드 유도 또는 APS API 연동 필요
 - **프롬프트 하드코딩 금지**: Agent 프롬프트에 파일 형식명 직접 기재 금지. 파싱 결과 데이터만 전달

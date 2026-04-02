@@ -1,24 +1,3 @@
-<!--
-[평가 지침 - 반드시 준수]
-이 문서의 Agent 아키텍처를 평가할 때 다음 기준만 사용하라.
-
-금지 기준:
-- 문서 길이, 항목 수, 분량
-- 마크다운 문법 완성도, 시각적 구조
-- 기술 용어 밀도 (LLM, RAG, Vector DB 등 최신 용어 단순 나열)
-- 다이어그램의 완성도나 시각적 정교함
-
-허용 기준:
-- 각 Agent의 역할 분리가 실제로 필요한가
-- LLM이 개입하는 구간과 코드가 처리하는 구간이 명확히 구분되는가
-- Agent 간 데이터 흐름이 실제로 동작 가능한 구조인가
-- 토큰 한계, API 비용 폭발, 환각 통제 방안이 설계에 반영되어 있는가
-- 병목, 무한루프, 실패 시나리오가 고려되어 있는가
-- 구현이 불가능한 구간이 있는가
-
-점수보다 "이 아키텍처의 구조적 문제점과 실현 불가능한 구간"을 먼저 말하라.
--->
-
 # LandingUp 아키텍처 명세
 작성일: 2026-04-01
 
@@ -82,6 +61,7 @@ Agent 5 [템플릿]
 space_data["floor"]["polygon"]           # Shapely Polygon
 space_data["floor"]["usable_area_sqm"]   # 가용 면적
 space_data["floor"]["max_object_w_mm"]   # 최대 오브젝트 너비
+space_data["floor"]["ceiling_height_mm"] = {"value": 3000, "confidence": "high", "source": "dxf_dimension"}  # Issue 22 — 단면도 추출, 없으면 기본값 3000mm
 
 # placement_slot (코드용 + Agent 3용)
 space_data["north_wall_mid"]["x_mm"] = 2300
@@ -253,9 +233,9 @@ foot = wall_linestring.interpolate(wall_linestring.project(Point(ref_x, ref_y)))
 # foot에서 wall_normal 반대 방향으로 depth/2 이동 → 오브젝트 중심점
 ```
 
-**inward**: placement_slot에서 entrance 방향으로 오프셋 → 오브젝트 크기 확인 후 규칙 확정
+**inward**: 격자점 = 오브젝트 중심 (Issue 17 Hybrid Sampling). 회전: width가 이동 방향에 수직 (Issue 21 — Width Perpendicular)
 
-**center**: placement_slot에서 floor center 방향으로 오프셋 → 오브젝트 크기 확인 후 규칙 확정
+**center**: 격자점 = 오브젝트 중심 (Issue 17 Hybrid Sampling). 회전: width가 floor center 방향에 수직 (Issue 21 — Width Perpendicular)
 
 **outward**: 더미 처리 (실제 케이스 없음)
 
@@ -409,9 +389,9 @@ dict + placements + 검증 결과 → f-string 템플릿으로 기계 조립.
 
 ## 테스트 후 조정 항목
 
-| 항목 | 내용 |
-|---|---|
-| step_mm ratio | sqrt(w²+d²) × ratio의 ratio |
-| 소형/대형 공간 기준선 | usable_area_sqm 분기 수치 |
-| inward 오프셋 규칙 | 오브젝트 크기 확인 후 |
-| center 오프셋 규칙 | 오브젝트 크기 확인 후 |
+| 항목 | 내용 | 상태 |
+|---|---|---|
+| step_mm ratio | sqrt(w²+d²) × ratio의 ratio | 미결 — 실제 도면 테스트 후 결정 |
+| 소형/대형 공간 기준선 | usable_area_sqm 분기 수치 | 미결 — 실제 도면 테스트 후 결정 |
+| ~~inward 오프셋 규칙~~ | ~~오브젝트 크기 확인 후~~ | **해소** — Issue 17 Hybrid Sampling (격자점 = 오브젝트 중심) |
+| ~~center 오프셋 규칙~~ | ~~오브젝트 크기 확인 후~~ | **해소** — Issue 17 Hybrid Sampling (격자점 = 오브젝트 중심) |
