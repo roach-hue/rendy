@@ -1,0 +1,54 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git:*)",
+      "Bash(python:*)",
+      "Bash(docker:*)",
+      "Bash(pip:*)",
+      "Bash(ls:*)",
+      "Bash(mkdir:*)",
+      "Bash(powershell:*)",
+      "Write",
+      "Edit",
+      "Read"
+    ],
+    "defaultMode": "acceptEdits"
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python -c \"import json; claude=open('c:/simhwa/rendy/claude.md',encoding='utf-8').read(); memory=''; \nimport glob; files=sorted(glob.glob('C:/Users/roach/.claude/projects/c--simhwa-rendy/memory/*.md')); \nif files: memory='\\n\\n---\\n\\n'.join(open(f,encoding='utf-8').read() for f in files); \ncontent='=== claude.md (자동 로드) ===\\n'+claude+'\\n\\n=== MEMORY.md (자동 로드) ===\\n'+memory; print(json.dumps({'hookSpecificOutput':{'hookEventName':'SessionStart','additionalContext':content}}))\" 2>/dev/null || true",
+            "statusMessage": "claude.md + MEMORY.md 로드 중..."
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python -m flake8 \"$CLAUDE_TOOL_INPUT_FILE_PATH\" --max-line-length=100 2>/dev/null || true"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "powershell",
+            "command": "[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null; [Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime] | Out-Null; $xml = New-Object Windows.Data.Xml.Dom.XmlDocument; $xml.LoadXml('<toast><visual><binding template=\"ToastText02\"><text id=\"1\">LandingUp</text><text id=\"2\">Claude 작업 완료!</text></binding></visual></toast>'); $toast = New-Object Windows.UI.Notifications.ToastNotification $xml; [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('LandingUp').Show($toast)",
+            "statusMessage": "Windows 알림 발송 중...",
+            "async": true
+          }
+        ]
+      }
+    ]
+  }
+}
