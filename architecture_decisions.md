@@ -703,6 +703,18 @@ if parsed_drawings.section is None:
 
 ---
 
+## Issue 23. 3D 뷰어 오브젝트 드래그 API 호출 전략
+
+**결정**: `dragend` 단일 호출 (Three.js DragControls `dragend` 이벤트)
+
+**기각**: debounce — 드래그 중 멈추면 중간 위치로 저장되는 버그 발생. 드래그 인터랙션에 부적합.
+
+**이유**: 드래그 중(`drag` 이벤트)은 로컬 렌더링만 수행. 손을 뗄 때(`dragend`) 최종 위치를 `PATCH /layout/{id}/object/{type}` 1회 호출. 중간 위치 저장 없음, 과호출 없음.
+
+**구현 위치**: `frontend/src/hooks/useDragControls.ts`
+
+---
+
 ## 의도적으로 수용한 설계 한계
 
 **Greedy 순차 배치 (priority 순 탐색)**

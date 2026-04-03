@@ -38,11 +38,23 @@ auto_detected = {
 1. 픽셀 → mm 변환 + ParsedDrawings.section에서 ceiling_height_mm 추출 (없으면 기본값 3000mm)
 2. floor_polygon.difference(inaccessible_rooms) → 배치 불가 영역 차감 (Issue 17)
 3. 내부 벽 → wall_linestring으로 space_data 추가 (Issue 17)
+   - **[현재 구현 추가]** inner_walls 좌표계 보정 (Vision 로컬 좌표 → floor polygon 절대 좌표) + floor 클리핑
+   - **[현재 구현 추가]** inaccessible_rooms도 dead_zones에 추가
+   - **[현재 구현 추가]** exterior_wall_linestrings, inner_wall_linestrings, all_wall_linestrings 저장
 4. Shapely → Dead Zone 생성
+   - **[현재 구현 추가]** Choke Point 병목 탐지 (450mm buffer pairwise 교차) → dead zones 연동
 5. Shapely → placement_slot 좌표 + wall_linestring + wall_normal 계산
+   - **[현재 구현 추가]** 내부 slot 생성 (interior_slot) — 외벽 edge + 내부 격자
+   - **[현재 구현 차이]** step_mm: 설계 "테스트 후 결정" → 0.7 ratio 하드코딩 (실측 후 조정 예정)
 6. NetworkX → 격자 그래프 + 보행 거리 + walk_mm 기반 zone_label 부여 (Issue 16, 정적 분할 폐기)
+   - **[현재 구현 차이]** Zone 경계: 설계 고정값(0-400/400-700/700+) → 공간 비례 동적(33%/66%)
+   - **[현재 구현 추가]** dead_zones 영역 내 그래프 노드 소거
+   - **[현재 구현 추가]** Semantic Tag 부여 (corner/wall_adjacent/center_area/entrance_facing)
 6-b. Main Artery LineString 캐싱 → space_data["fire"]["main_artery"] 저장 (Issue 19)
+   - **[현재 구현 강화]** 직선 → Dijkstra 최단 경로 (내벽/Dead Zone 우회)
+6-c. **[현재 구현 추가]** Virtual Entrance 생성 (entrance_width_mm + buffer 460mm)
 7. Agent 3용 자연어 요약 생성
+   - **[현재 구현 추가]** semantic_tags 포함
 
 ### 출력
 space_data 확정 저장 (코드용 수치 + Agent 3용 자연어 이중 구조)
@@ -51,5 +63,8 @@ space_data 확정 저장 (코드용 수치 + Agent 3용 자연어 이중 구조)
 - 전반부 출력은 임시 — 사용자 마킹 UI에서 확인/수정 후에만 후반부 실행
 - "모르겠음" 선택 시 → disclaimer 등록
 - 파일 형식별 파싱은 FloorPlanParser 추상 클래스 어댑터에서만 처리. 어댑터 내부에서 도면 타입(평면도/단면도) 감지 → ParsedDrawings 스키마로 출력 (Issue 22)
+  - **[현재 구현 강화]** PDF 파서: 래스터화 위임 → pdfplumber 벡터 직접 추출 (벡터 부족 시 래스터 fallback 유지)
 - Agent 프롬프트에 파일 형식명 직접 기재 금지
 - NetworkX 그래프 객체는 dict에 저장 금지 — 함수 내 변수로만 유지
+  - **[현재 구현 차이]** build_corridor_graph를 export하여 placement_engine에서 재사용. 그래프 자체는 space_data에 저장하지 않으나 함수로 접근 가능.
+  - **[현재 구현 차이]** 매 배치마다 NetworkX has_path 검증 실행. 설계 원본: 확정 시 1회만. (과보수, 성능 문제 시 조정)

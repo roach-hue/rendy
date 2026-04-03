@@ -38,7 +38,21 @@ class ParsedSection:
     confidence: str   # "high" / "medium" / "low"
     source: str       # "dxf_dimension" / "ocr" / "vision" / "user_input"
 
+class ParsedFloorPlan:
+    floor_polygon_px: list[tuple]
+    scale_mm_per_px: float
+    entrance: DetectedPoint | None
+    sprinklers: list[DetectedPoint]
+    fire_hydrant: list[DetectedPoint]
+    electrical_panel: list[DetectedPoint]
+    inner_walls: list[DetectedLineSegment]
+    inaccessible_rooms: list[DetectedPolygon]
+
 class ParsedDrawings:
+    # 명칭 구분:
+    #   floor_plan  → 평면도 파싱 결과 (픽셀 좌표계)
+    #   section     → 단면도 파싱 결과 (ceiling_height_mm 등)
+    #   space_data["floor"] → Agent 2 후반부가 mm 변환 후 확정한 공간 데이터 (별개)
     floor_plan: ParsedFloorPlan
     section: Optional[ParsedSection]  # 단면도 없으면 None
 ```

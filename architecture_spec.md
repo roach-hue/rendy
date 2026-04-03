@@ -78,7 +78,7 @@ space_data["zones"]["deep_zone"]     = {"walk_mm_min": 700, "walk_mm_max": float
 
 # 브랜드 제약
 space_data["brand"]["clearspace_mm"] = {"value": 1500, "confidence": "high", "source": "manual"}
-space_data["brand"]["relationships"] = [{"rule": "라이언과 춘식이를 떨어뜨릴 것", "confidence": "high"}]
+space_data["brand"]["object_pair_rules"] = [{"rule": "라이언과 춘식이를 떨어뜨릴 것", "confidence": "high"}]
 
 # 소방/시공 기준 (하드코딩)
 space_data["fire"]["main_corridor_min_mm"] = 900
@@ -105,13 +105,13 @@ space_data["infra"]["disclaimer"] = ["electrical_panel"]
 - `character_orientation` — 배치 방향 규정
 - `prohibited_material` — 금지 소재
 - `logo_clearspace_mm` — 로고 여백
-- `relationships` — 관계 제약 자연어 그대로
+- `object_pair_rules` — 관계 제약 자연어 그대로
 
 **Output**:
 ```python
 space_data["brand"] = {
     "clearspace_mm": {"value": 1500, "confidence": "high", "source": "manual"},
-    "relationships": [{"rule": "라이언과 춘식이를 떨어뜨릴 것", "confidence": "high"}]
+    "object_pair_rules": [{"rule": "라이언과 춘식이를 떨어뜨릴 것", "confidence": "high"}]
 }
 ```
 

@@ -15,13 +15,13 @@ brand_extraction.md 스킬 기반으로 동작한다.
 - 이미지 PDF → Claude Vision
 
 ## 출력 필수 필드
-clearspace_mm, character_orientation, prohibited_material, logo_clearspace_mm, relationships
+clearspace_mm, character_orientation, prohibited_material, logo_clearspace_mm, object_pair_rules
 
 ## 출력 형식
 ```python
 space_data["brand"] = {
     "clearspace_mm": {"value": 1500, "confidence": "high", "source": "manual"},
-    "relationships": [{"rule": "라이언과 춘식이를 떨어뜨릴 것", "confidence": "high"}]
+    "object_pair_rules": [{"rule": "라이언과 춘식이를 떨어뜨릴 것", "confidence": "high"}]
 }
 ```
 

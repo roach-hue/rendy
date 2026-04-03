@@ -41,6 +41,13 @@
 - **Agent 3 재호출**: cascade failure 감지 시에만 발생. 피드백은 Choke Point intersects로 추출한 f-string 요약문만 전달 — `placed_objects` JSON 전달 금지 (Issue 12)
 - **증분 검증**: 오브젝트 단위 배치 즉시 Shapely 충돌 + NetworkX 통로 체크. 일괄 검증 금지
 
+### 코드 구조 (단일 책임 원칙)
+
+- **1파일 1책임**: 각 모듈/컴포넌트는 하나의 명확한 책임만 담당. 책임이 2개 이상 섞이면 분리.
+- **라우터는 라우팅만**: `routes.py`는 요청 수신 → 서비스 호출 → 응답 반환만. 비즈니스 로직, 직렬화, 파이프라인 조율을 직접 수행 금지.
+- **로직 복제 금지**: 동일한 검증 로직(충돌 체크, Dead Zone, Main Artery 등)을 여러 파일에 복제하지 않음. 하나의 모듈에서 함수를 export하고 호출.
+- **새 기능 추가 시**: 기존 파일에 책임을 추가하기 전에, 별도 파일로 분리할 수 있는지 먼저 판단. 200줄 이상이면 분리 검토.
+
 ---
 
 ## 컨텍스트 경고 기준
@@ -82,3 +89,21 @@ FloorPlanParser (추상)
 - **공통 출력 스키마**: 모든 파서는 `ParsedDrawings` 공통 스키마로 정규화 후 Agent 2에 전달 (Issue 22)
 - **DWG 주의**: 상업용 서버 환경에서 ODA File Converter 무료 사용 불가. DXF 직접 업로드 유도 또는 APS API 연동 필요
 - **프롬프트 하드코딩 금지**: Agent 프롬프트에 파일 형식명 직접 기재 금지. 파싱 결과 데이터만 전달
+
+---
+
+## Agent 간 I/O 명칭 통일 규칙
+
+- **작업 중 명칭 불일치 발견 시 즉시 통일**: 코드·스킬 파일·에이전트 파일 전체에서 같은 데이터를 가리키는 키·클래스·필드 이름이 다르면 발견 즉시 전파 수정. 발견하고도 미루는 것 금지.
+- **통일 기준 우선순위**: `architecture_spec.md` → `architecture_decisions.md` → 스킬 파일 → 코드 순. 상위 문서 명칭이 기준.
+- **변경 시 영향 범위 전수 확인**: `grep -rn "구명칭"` 으로 전체 검색 후 누락 없이 교체.
+- **확정 명칭 목록** (변경 시 이 목록도 갱신):
+
+| 데이터 | 확정 키/클래스명 | 변경 이력 |
+|--------|----------------|----------|
+| 파서 공통 출력 스키마 | `ParsedDrawings` | — |
+| 평면도 파싱 결과 | `ParsedFloorPlan` | 구: `ParsedFloor` |
+| 평면도 필드명 (ParsedDrawings 내) | `floor_plan` | 구: `floor` |
+| 단면도 파싱 결과 | `ParsedSection` | — |
+| 벽면 기준점 | `placement_slot` | 구: `reference_point` |
+| 브랜드 오브젝트 쌍 규칙 | `object_pair_rules` | 구: `relationships` |

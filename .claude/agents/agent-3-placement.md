@@ -33,8 +33,12 @@ class Placement(BaseModel):
 - outward direction은 더미 처리 (실제 케이스 없음)
 - Circuit Breaker: Pydantic 실패 → 재시도 최대 3회 → 파이프라인 중단
 - 재호출 시 실패한 zone을 컨텍스트에 누적 전달 → 시도 가능한 zone 소진 시 자연 종료
+  - **[현재 구현 차이]** Global Reset + Agent 3 재호출 폐기. 실패 시 즉시 deterministic fallback 진입. Phase 3-2에서 복원 예정.
 - 실패 컨텍스트는 Choke Point intersects로 추출된 f-string 요약문만 전달 (placed_objects JSON 전달 금지)
+  - **[현재 구현 차이]** Choke Point를 f-string으로 Agent 3에 전달하지 않고 dead zone으로 차단. Agent 3 재호출 복원 시 함께 복원 예정.
 - placed_because는 서비스 핵심 상품성 — 반드시 기획 의도를 기록
+- **[현재 구현 추가]** MAX_AVAILABLE_SLOTS 프롬프트 주입 — slot 수 초과 기획 방지
+- **[현재 구현 추가]** rotation_deg는 0/90/180/270만 허용 (Pydantic snap). 설계 원본은 자유(0~359). Phase 3-1에서 벽 사선 각도 지원 시 해제 예정.
 
 ## 레퍼런스 이미지 활용 규칙
 

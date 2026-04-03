@@ -5,6 +5,20 @@ description: Agent 1이 브랜드 메뉴얼 PDF에서 수치/규정을 추출하
 
 # 브랜드 수치 추출 스킬 (Brand Extraction Skill)
 
+## 담당 Agent 및 입력 범위
+
+**Agent 1 전담** — 브랜드 메뉴얼 PDF만 처리.
+
+```
+사용자 업로드 파일
+  ├── 브랜드 메뉴얼 PDF  →  Agent 1 (이 스킬)  →  space_data["brand"]
+  └── 평면도 + 단면도    →  Agent 2            →  space_data["floor"] + placement_slots
+```
+
+평면도/단면도는 이 Agent의 입력이 아님. 도면은 floorplan_detection.md 참조.
+
+---
+
 ## 목적
 브랜드 메뉴얼 PDF에서 이격 수치, 배치 규정, 관계 제약을 추출하여 `space_data["brand"]`에 저장.
 
@@ -18,7 +32,7 @@ description: Agent 1이 브랜드 메뉴얼 PDF에서 수치/규정을 추출하
 | `character_orientation` | 배치 방향 규정 | "정면 향하도록" |
 | `prohibited_material` | 금지 소재 | "메탈 소재 금지" |
 | `logo_clearspace_mm` | 로고 여백 | 500mm |
-| `relationships` | 관계 제약 (자연어 그대로) | "라이언과 춘식이를 떨어뜨릴 것" |
+| `object_pair_rules` | 관계 제약 (자연어 그대로) | "라이언과 춘식이를 떨어뜨릴 것" |
 
 ---
 
@@ -99,7 +113,7 @@ def check_range(cls, v):
 
 ---
 
-## relationships 처리
+## object_pair_rules 처리
 
 - 자연어 그대로 보존 — 수치 변환하지 않음
 - 예: `"라이언과 춘식이를 떨어뜨릴 것"` → 그대로 저장
@@ -116,7 +130,7 @@ space_data["brand"] = {
     "character_orientation": {"value": "정면 향하도록", "confidence": "high", "source": "manual"},
     "prohibited_material": {"value": "메탈 소재", "confidence": "medium", "source": "manual"},
     "logo_clearspace_mm": {"value": 500, "confidence": "high", "source": "manual"},
-    "relationships": [
+    "object_pair_rules": [
         {"rule": "라이언과 춘식이를 떨어뜨릴 것", "confidence": "high"}
     ]
 }

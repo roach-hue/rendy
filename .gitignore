@@ -1,0 +1,40 @@
+# Dependencies
+node_modules/
+__pycache__/
+*.pyc
+
+# Environment
+.env
+.env.local
+
+# Cache
+backend/cache/
+frontend/dist/
+frontend/.vite/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build
+*.egg-info/
+dist/
+build/
+
+# Archive (backup files)
+archive/
+
+# Test artifacts / sample files
+*.glb
+backend/test_results/
+backend/Gemini_Generated_Image_*
+backend/*.pdf
+
+# Work logs (Gemini handoff, issue reports)
+reports/for_gemini_*
+reports/issues/
