@@ -80,6 +80,32 @@ flowchart LR
 
 ---
 
+## 2.5. 도면 파일 변환 경로
+
+모든 파일 형식은 최종적으로 **ParsedDrawings (mm 좌표계)**로 통일됩니다.
+
+| 입력 형식 | 변환 도구 | 변환 경로 | 스케일 산출 |
+|----------|----------|----------|-----------|
+| DXF | ezdxf | 벡터 직접 읽음 (변환 없음) → 좌표 그대로 mm | scale = 1.0 (mm 원본) |
+| PDF (벡터 ≥10선분) | pdfplumber | 벡터 선분/텍스트 직접 추출 → pt를 mm로 변환 | 치수 텍스트 + 최근접 선분 매칭 → mm/pt |
+| PDF (스캔/벡터 <10선분) | PyMuPDF → OpenCV + Vision | PNG 래스터화 → contour + Vision | 치수선 텍스트 매칭 → mm/px |
+| PNG / JPG | OpenCV + Claude Vision | contour(polygon) + Vision(설비/치수) | 가장 긴 치수선 기준 mm/px |
+
+```mermaid
+flowchart LR
+    DXF["DXF 파일"] -->|ezdxf| MM["ParsedDrawings<br/>(mm 좌표계)"]
+    PDF_V["PDF (벡터)"] -->|pdfplumber| MM
+    PDF_S["PDF (스캔)"] -->|PyMuPDF 래스터화| IMG_P["ImageParser"]
+    PNG["PNG/JPG"] -->|OpenCV + Vision| IMG_P
+    IMG_P -->|scale_mm_per_px 변환| MM
+    
+    MM -->|"사용자 교정 (스케일 앵커)"| MM_FINAL["확정된 ParsedDrawings"]
+```
+
+> 스케일이 부정확한 경우, 마킹 UI의 **스케일 앵커**(도면에서 2점 클릭 + 실제 mm 입력)로 강제 교정 가능.
+
+---
+
 ## 3. 전체 파이프라인 다이어그램
 
 ```mermaid
