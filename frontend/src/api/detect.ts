@@ -15,13 +15,22 @@ export interface DetectedPolygon {
   confidence: string;
 }
 
+export interface DetectedEntrance {
+  x_px: number;
+  y_px: number;
+  confidence: string;
+  is_main: boolean;
+  type: string;
+}
+
 export interface ParsedFloorPlan {
   floor_polygon_px: [number, number][];
   scale_mm_per_px: number;
   scale_confirmed: boolean;
   detected_width_mm: number | null;
   detected_height_mm: number | null;
-  entrance: DetectedPoint | null;
+  entrance: DetectedPoint | null;  // 하위 호환: entrances[0]
+  entrances: DetectedEntrance[];
   sprinklers: DetectedPoint[];
   fire_hydrant: DetectedPoint[];
   electrical_panel: DetectedPoint[];
@@ -29,10 +38,18 @@ export interface ParsedFloorPlan {
   inaccessible_rooms: DetectedPolygon[];
 }
 
+export interface DxfViewport {
+  min_x: number;
+  min_y: number;
+  max_x: number;
+  max_y: number;
+}
+
 export interface ParsedDrawings {
   floor_plan: ParsedFloorPlan;
   section: { ceiling_height_mm: number | null } | null;
   preview_image_base64?: string;  // PDF/DXF일 때 래스터화 미리보기
+  dxf_viewport?: DxfViewport;    // DXF 도면의 엔티티 bounding box
 }
 
 export async function detectFloorPlan(

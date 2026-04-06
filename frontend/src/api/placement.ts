@@ -5,8 +5,34 @@ export interface ViolationItem {
   detail: string;
 }
 
+export interface PlacedObject {
+  object_type: string;
+  center_x_mm: number;
+  center_y_mm: number;
+  rotation_deg: number;
+  width_mm: number;
+  depth_mm: number;
+  height_mm: number;
+  category: string;
+  zone_label: string;
+  geometry_id: string;
+}
+
+export interface FloorVizSlot {
+  x_mm: number;
+  y_mm: number;
+  walk_mm: number;
+  zone_label: string;
+}
+
+export interface FloorViz {
+  slots: FloorVizSlot[];
+  main_artery: [number, number][];
+  max_walk_mm: number;
+}
+
 export interface PlacementResult {
-  placed: Record<string, unknown>[];
+  placed: PlacedObject[];
   dropped: Record<string, unknown>[];
   verification: {
     passed: boolean;
@@ -27,6 +53,7 @@ export interface PlacementResult {
     slot_count: number;
     verification_passed: boolean;
   };
+  floor_viz?: FloorViz;
 }
 
 export async function runPlacement(
@@ -51,6 +78,7 @@ export async function runPlacement(
     throw new Error(err.detail ?? `배치 실패: ${res.status}`);
   }
   const result = await res.json();
-  console.debug("[placement] done:", result.placed?.length, "placed");
+  console.debug("[placement] done:", result.placed?.length, "placed,",
+    "artery:", result.floor_viz?.main_artery?.length ?? 0, "nodes");
   return result;
 }

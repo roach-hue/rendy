@@ -8,6 +8,14 @@ class DetectedPoint(BaseModel):
     confidence: str
 
 
+class DetectedEntrance(BaseModel):
+    x_px: float
+    y_px: float
+    confidence: str
+    is_main: bool = True
+    type: str = "MAIN_DOOR"  # MAIN_DOOR, SUB_DOOR, EMERGENCY_EXIT 등
+
+
 class DetectedLineSegment(BaseModel):
     start_px: tuple[float, float]
     end_px: tuple[float, float]
@@ -28,7 +36,9 @@ class ParsedFloorPlan(BaseModel):
     # Vision이 읽은 건물 치수 (도면 텍스트에서 추출)
     detected_width_mm: Optional[float] = None
     detected_height_mm: Optional[float] = None
+    # 하위 호환: entrance(단일)는 entrances[0]에서 자동 추출
     entrance: Optional[DetectedPoint] = None
+    entrances: list[DetectedEntrance] = []
     # 입구 개구부 폭 (mm). 파서가 추출, 없으면 agent2에서 2000mm 기본값 사용.
     entrance_width_mm: Optional[float] = None
     sprinklers: list[DetectedPoint] = []

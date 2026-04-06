@@ -64,9 +64,23 @@ def export_glb(
         for i, wm in enumerate(wall_meshes):
             scene.add_geometry(wm, node_name=f"wall_{i}")
 
-    # 배치된 오브젝트 (whitebox)
+    # 배치된 오브젝트 (whitebox) — geometry_cache 경유
+    from app.modules.geometry_cache import get_or_create
     for i, obj in enumerate(placed):
-        box_mesh = _create_object_box(obj, ceiling_h)
+        # 캐시 등록 (해시 기반 중복 방지)
+        geo = get_or_create(
+            obj_type=obj["object_type"],
+            category=obj.get("category", ""),
+            width_mm=obj["width_mm"],
+            depth_mm=obj["depth_mm"],
+            height_mm=obj.get("height_mm", 1000),
+        )
+        obj["geometry_id"] = geo["geometry_id"]
+
+        print(f"[GLBExporter] obj {i}: {obj['object_type']} "
+              f"w={obj['width_mm']} d={obj['depth_mm']} h={obj.get('height_mm','?')} "
+              f"gid={geo['geometry_id'][:8]}...")
+        box_mesh = _create_object_mesh(obj, ceiling_h)
         scene.add_geometry(box_mesh, node_name=f"obj_{i}_{obj['object_type']}")
 
     # .glb 내보내기
@@ -164,33 +178,65 @@ def _create_walls(floor_poly, height_mm: float) -> list[trimesh.Trimesh]:
     return walls
 
 
-def _create_object_box(obj: dict, ceiling_h: float) -> trimesh.Trimesh:
-    """오브젝트 whitebox 메시."""
+# 등신대/배너 등 Plane형 기물의 최소 두께 (mm) — geometry_cache에서 정의
+from app.modules.geometry_cache import MIN_DEPTH_MM
+
+
+def _create_object_mesh(obj: dict, ceiling_h: float) -> trimesh.Trimesh:
+    """
+    파라메트릭 화이트박스 메시 생성.
+
+    Primitive 타입:
+    - BOX: 사각형 기물 전반 (테이블, 선반, 카운터, 등신대/배너)
+    - CYLINDER: 원형 매대/기둥 (category에 "cylinder"/"round"/"column" 포함 시)
+
+    등신대/배너: depth < MIN_DEPTH_MM이면 MIN_DEPTH_MM으로 강제 (충돌 영역 확보).
+    """
     w = obj["width_mm"]
     d = obj["depth_mm"]
-    h = obj.get("height_mm", 1000)  # height_mm 없으면 1000mm 기본
+    h = obj.get("height_mm", 1000)
     cx = obj["center_x_mm"]
     cy = obj["center_y_mm"]
     rot_deg = obj.get("rotation_deg", 0)
+    category = obj.get("category", "")
 
-    box = trimesh.creation.box(extents=[w, h, d])
+    # 등신대/배너: 최소 두께 20mm 보장
+    if d < MIN_DEPTH_MM:
+        d = MIN_DEPTH_MM
+
+    # Primitive 타입 결정
+    is_cylinder = any(kw in category.lower() for kw in ("cylinder", "round", "column", "pillar"))
+
+    if is_cylinder:
+        # CYLINDER: diameter = max(w, d), height = h
+        diameter = max(w, d)
+        mesh = trimesh.creation.cylinder(radius=diameter / 2, height=h, sections=32)
+    else:
+        # BOX: extents=[X=width, Y=height, Z=depth]
+        # Three.js Y-up: width→X축(좌우), height→Y축(수직), depth→Z축(앞뒤)
+        mesh = trimesh.creation.box(extents=[w, h, d])
+
+    # 비정상 비율 경고 (height가 width의 5배 이상이면 의심)
+    if h > w * 5 and h > d * 5 and h > 1500:
+        print(f"[GLBExporter] WARNING: {obj.get('object_type','?')} may be monolith — "
+              f"w={w}, d={d}, h={h}. Check if height_mm/depth_mm are swapped in DB.")
 
     # Y축 기준 회전 (top-view)
     if rot_deg != 0:
         rot = trimesh.transformations.rotation_matrix(
             math.radians(-rot_deg), [0, 1, 0]
         )
-        box.apply_transform(rot)
+        mesh.apply_transform(rot)
 
     # 위치: (cx, h/2, cy) — 바닥에 놓임
-    box.apply_translation([cx, h / 2, cy])
+    mesh.apply_translation([cx, h / 2, cy])
 
-    # zone별 색상 지정 (프론트에서도 이름 기반 재지정하지만 GLB 자체도 유색으로)
+    # zone별 색상
     zone = obj.get("zone_label", "unknown")
     color = ZONE_COLORS.get(zone, ZONE_COLORS["unknown"])
-    _apply_color(box, color)
+    _apply_color(mesh, color)
 
-    return box
+    return mesh
 
 
 def _get_ceiling_height(space_data: dict) -> float:

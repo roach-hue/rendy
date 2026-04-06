@@ -16,6 +16,10 @@ def get_parser(
         from app.parsers.dxf_parser import DXFParser
         return DXFParser(floor_bytes, section_bytes)
 
+    if ext == "dwg":
+        from app.parsers.dwg_parser import DWGParser
+        return DWGParser(floor_bytes, section_bytes)
+
     if ext == "pdf":
         from app.parsers.pdf_parser import PDFParser
         return PDFParser(floor_bytes, section_bytes)

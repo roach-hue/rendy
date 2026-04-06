@@ -44,7 +44,8 @@ export default function App() {
       setScale(cached.scale || 10);
       setDrawings(cached.drawings || null);
       console.debug("[App] cache loaded, starting placement");
-      // 바로 배치 실행
+      // 이전 결과 완벽 초기화 후 배치 실행
+      setPlacementResult(null);
       setPlacementLoading(true);
       setPlacementError(null);
       setStep("placement");
@@ -63,6 +64,8 @@ export default function App() {
   async function handleConfirmDone() {
     if (!drawings) return;
     await saveCache();
+    // 이전 결과 완벽 초기화
+    setPlacementResult(null);
     setPlacementLoading(true);
     setPlacementError(null);
     setStep("placement");
@@ -115,9 +118,10 @@ export default function App() {
         <MarkingPage
           drawings={drawings}
           floorFile={floorFile}
-          onComplete={(sd, sc) => {
+          onComplete={(sd, sc, editedDrawings) => {
             setSpaceData(sd);
             setScale(sc);
+            setDrawings(editedDrawings);
             setStep("confirm");
           }}
         />
@@ -130,6 +134,9 @@ export default function App() {
           scale={scale}
           floorFile={floorFile!}
           previewBase64={drawings?.preview_image_base64}
+          dxfViewport={drawings?.dxf_viewport}
+          floorPolygonPx={drawings?.floor_plan.floor_polygon_px}
+          inaccessibleRooms={drawings?.floor_plan.inaccessible_rooms}
           onConfirm={handleConfirmDone}
         />
       )}

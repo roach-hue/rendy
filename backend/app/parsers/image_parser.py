@@ -8,6 +8,7 @@ import numpy as np
 
 from app.parsers.base import FloorPlanParser
 from app.schemas.drawings import (
+    DetectedEntrance,
     DetectedLineSegment,
     DetectedPoint,
     DetectedPolygon,
@@ -23,28 +24,65 @@ VISION_PROMPT = """당신은 건축 평면도 분석 전문가입니다.
 아래 도면 이미지에서 항목들을 감지하여 아래 JSON 형식만 출력하세요. 다른 텍스트 금지.
 
 {
-  "floor_polygon_px": [[x1,y1],[x2,y2],[x3,y3],[x4,y4]],
+  "floor_polygon_px": [[981,484],[1100,484],[1100,500],[1833,500],[1833,1052],[981,1052]],
   "dimensions": [
-    {"value_mm": 6000, "start_px": [100, 50], "end_px": [700, 50]}
+    {"value_mm": 12000, "start_px": [981, 470], "end_px": [1833, 470]},
+    {"value_mm": 8000, "start_px": [970, 484], "end_px": [970, 1052]}
   ],
-  "entrance": {"x_px": 0, "y_px": 0, "confidence": "high"},
-  "sprinklers": [{"x_px": 0, "y_px": 0, "confidence": "high"}],
-  "fire_hydrant": [{"x_px": 0, "y_px": 0, "confidence": "high"}],
-  "electrical_panel": [{"x_px": 0, "y_px": 0, "confidence": "high"}],
-  "inner_walls": [{"start_px": [0, 0], "end_px": [0, 0], "confidence": "high"}],
-  "inaccessible_rooms": [{"polygon_px": [[0,0],[0,0],[0,0]], "confidence": "medium"}]
+  "entrances": [
+    {"x_px": 1400, "y_px": 1052, "confidence": "high", "is_main": true, "type": "MAIN_DOOR"},
+    {"x_px": 500, "y_px": 700, "confidence": "medium", "is_main": false, "type": "SUB_DOOR"}
+  ],
+  "sprinklers": [{"x_px": 200, "y_px": 150, "confidence": "high"}],
+  "fire_hydrant": [],
+  "electrical_panel": [],
+  "inner_walls": [{"start_px": [1200, 484], "end_px": [1200, 750], "confidence": "high"}],
+  "inaccessible_rooms": [{"polygon_px": [[1500,484],[1833,484],[1833,650],[1500,650]], "confidence": "high", "label": "STORAGE"}]
 }
 
-규칙:
-- floor_polygon_px: 건물의 가장 바깥쪽 외벽(외곽선)의 꼭짓점 픽셀 좌표 배열. 건물 전체를 둘러싸는 가장 큰 닫힌 사각형/다각형. 내부 구획벽이나 존(zone) 경계가 아니라 건물 외벽. 치수선·타이틀 블록·여백은 제외. 최소 4개 이상의 꼭짓점.
-- dimensions: 치수선 양 끝점 픽셀 좌표 + 표기된 수치(mm). cm면 ×10, m면 ×1000. 없으면 [].
-- entrance: 문/출입구 위치 1개. 없으면 null.
-- sprinklers / fire_hydrant / electrical_panel: 해당 설비 좌표 배열. 없으면 [].
-- inner_walls: 외벽 제외, 내부 구획 벽만. 없으면 [].
-- inaccessible_rooms: 화장실·창고 등 폐쇄 공간 폴리곤. 없으면 [].
-- confidence: 확실하면 "high", 추정이면 "medium", 불확실하면 "low".
-- 확실하지 않은 항목은 confidence "low"로 표기. 추측해서 "high" 금지.
-- 도면 바깥 타이틀 블록·범례 영역의 심볼은 설비로 감지하지 말 것.
+## floor_polygon_px (가장 중요 — 고밀도 샘플링)
+- 건물의 가장 바깥쪽 외벽(외곽선)만. 건물을 둘러싸는 가장 큰 닫힌 다각형.
+- 절대 포함하지 말 것: 치수선, 치수 텍스트, 화살표, 타이틀 블록, 범례, 여백, 도면 테두리.
+- 외벽의 실제 벽 선분(두꺼운 선)만 따라갈 것. 얇은 보조선/중심선은 외벽이 아님.
+- 최소 4개 꼭짓점. 시계방향 또는 반시계방향 순서로 정렬. 자기 교차 금지. 좌표 고유.
+- ㄱ자/ㄷ자/L자 등 비정형 건물이면 모든 꺾임점을 포함.
+- **곡선 벽(아크/스플라인)**: 곡선을 직선으로 뭉개지 말 것. 곡선 구간을 최소 5~8개의 조밀한 좌표점으로 분할하여 배열에 포함. 곡률이 급격할수록 점을 더 많이 찍을 것. 하류 시스템이 직선 세그먼트의 집합으로 처리함.
+
+## dimensions (스케일 산출용)
+- 도면에 표기된 치수선(숫자 + 양 끝 화살표/틱 마크)을 모두 추출.
+- 가장 긴 가로 치수선 + 가장 긴 세로 치수선을 반드시 포함.
+- value_mm: mm 단위로 변환. cm면 ×10, m면 ×1000. "1:100" 축척 표기는 무시.
+- start_px, end_px: 선분의 끝점 좌표 (텍스트 위치 아님).
+
+## entrances (복수 입구 — 모든 출입구 식별)
+- 도면 내의 모든 문/출입구를 배열로 반환. 1개여도 배열.
+- 각 입구:
+  - x_px, y_px: 문 심볼(호/아크)의 중심점 픽셀 좌표.
+  - confidence: "high" / "medium" / "low"
+  - is_main: 주 출입구(가장 큰 문, ENTRANCE 텍스트 근처)이면 true. 나머지 false.
+  - type: "MAIN_DOOR" / "SUB_DOOR" / "EMERGENCY_EXIT" / "SERVICE_DOOR"
+- 없으면 [].
+- 주의: "entrance" 아님. "entrances" (복수형 배열).
+
+## sprinklers / fire_hydrant / electrical_panel
+- 도면 내부 설비 심볼 중심 좌표. 도면 바깥(타이틀/범례) 무시.
+- 없으면 [].
+
+## inner_walls
+- 외벽 내부의 구획 벽만. 외벽 자체는 포함 금지.
+- 시작점/끝점 좌표. 문이 있는 벽은 문 위치에서 끊어서 2개 선분으로.
+- 없으면 [].
+
+## inaccessible_rooms (배치 불가 영역)
+- 배치 불가 폐쇄 공간: 화장실, 창고(STORAGE), 직원 공간(STAFF), 기계실, 기둥(COLUMN), 계단(STAIRS), 엘리베이터(ELEVATOR), 고정 설비.
+- polygon_px: 꼭짓점 배열. 최소 3개, 자기 교차 금지.
+- label: 영역 용도 (STORAGE, STAFF, STAIRS, COLUMN 등). 도면 텍스트가 있으면 그대로.
+- 없으면 [].
+
+## 공통 규칙
+- confidence: 확실 "high", 추정 "medium", 불확실 "low". 추측하여 "high" 금지.
+- 모든 좌표는 이미지 픽셀 기준 (좌상단 0,0).
+- JSON만 출력. 설명 텍스트 금지.
 """
 
 
@@ -75,13 +113,27 @@ class ImageParser(FloorPlanParser):
             floor_polygon_px = opencv_polygon
             print(f"[ImageParser] floor polygon: OpenCV only ({len(floor_polygon_px)} points)")
 
+        # entrances 배열 처리 (하위 호환: entrance 단일 필드도 유지)
+        entrances_raw = vision_result.get("entrances", [])
+        entrances = [_to_entrance(e) for e in entrances_raw if e]
+
+        # 하위 호환: entrances[0]을 entrance로, 또는 레거시 entrance 필드 사용
+        legacy_entrance = vision_result.get("entrance")
+        main_entrance = None
+        if entrances:
+            main = next((e for e in entrances if e.is_main), entrances[0])
+            main_entrance = DetectedPoint(x_px=main.x_px, y_px=main.y_px, confidence=main.confidence)
+        elif legacy_entrance:
+            main_entrance = _to_point(legacy_entrance)
+
         floor_plan = ParsedFloorPlan(
             floor_polygon_px=floor_polygon_px,
             scale_mm_per_px=scale_mm_per_px,
             scale_confirmed=(scale_mm_per_px != 10.0),
             detected_width_mm=det_w,
             detected_height_mm=det_h,
-            entrance=_to_point(vision_result.get("entrance")),
+            entrance=main_entrance,
+            entrances=entrances,
             sprinklers=[_to_point(p) for p in vision_result.get("sprinklers", []) if p],
             fire_hydrant=[_to_point(p) for p in vision_result.get("fire_hydrant", []) if p],
             electrical_panel=[_to_point(p) for p in vision_result.get("electrical_panel", []) if p],
@@ -389,6 +441,15 @@ def _to_point(d: dict | None) -> DetectedPoint | None:
     if not d:
         return None
     return DetectedPoint(x_px=d["x_px"], y_px=d["y_px"], confidence=d.get("confidence", "low"))
+
+
+def _to_entrance(d: dict) -> DetectedEntrance:
+    return DetectedEntrance(
+        x_px=d["x_px"], y_px=d["y_px"],
+        confidence=d.get("confidence", "low"),
+        is_main=d.get("is_main", False),
+        type=d.get("type", "SUB_DOOR"),
+    )
 
 
 def _to_segment(d: dict) -> DetectedLineSegment:

@@ -89,7 +89,7 @@ export function PlacementPage({ result, loading, error }: PlacementPageProps) {
           </button>
           <ViewerErrorBoundary>
             <Suspense fallback={<div style={{ padding: 40, textAlign: "center", color: "#666" }}>3D 뷰어 로딩 중...</div>}>
-              <SceneViewer glbBase64={result.glb_base64} />
+              <SceneViewer glbBase64={result.glb_base64} placed={result.placed} floorViz={result.floor_viz} />
             </Suspense>
           </ViewerErrorBoundary>
         </>

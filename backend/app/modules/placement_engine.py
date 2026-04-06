@@ -80,10 +80,19 @@ def run_placement_loop(
         floor_poly, space_data
     )
 
+    # IQI: 면적 밀도 상한 (배치 도중 실시간 체크)
+    usable_area = floor_poly.area if floor_poly else 1
+    max_footprint = usable_area * 0.25
+    cumulative_footprint = sum(
+        p.get("width_mm", 0) * p.get("depth_mm", 0)
+        for p in placed_polygons
+    )
+
     print(f"[PlacementEngine] start: {len(placements)} placements, "
           f"{len(eligible_objects)} objects, {len(slots)} slots, "
           f"corridor nodes: {len(corridor_nodes) if corridor_nodes else 0}, "
-          f"static cache: {'yes' if static_cache else 'no'}")
+          f"static cache: {'yes' if static_cache else 'no'}, "
+          f"density limit: {max_footprint/1_000_000:.1f}m² (25%)")
 
     for placement in placements:
         obj = obj_map.get(placement.object_type)
@@ -124,6 +133,9 @@ def run_placement_loop(
 
         placed = False
         for slot_key, slot in sorted_slots:
+            # floor_poly를 slot에 주입 (wall_facing 내부 방향 보정용)
+            slot["_floor_poly"] = floor_poly
+
             # 1. 좌표 계산
             result = calculate_position(placement, slot, obj, space_data)
             bbox: Polygon = result["bbox_polygon"]
@@ -200,7 +212,26 @@ def run_placement_loop(
                     print(f"[PlacementEngine] {slot_key}: 통로 차단 (NetworkX)")
                     continue
 
+            # 8. Choke Point 동선 병목 검증 (900mm)
+            if _check_choke_point_created(
+                bbox, placed_polygons, floor_poly, space_data
+            ):
+                print(f"[PlacementEngine] {slot_key}: 동선 병목 < 900mm (choke point)")
+                continue
+
+            # IQI 밀도 체크: 배치 시 점유율 25% 초과 방지
+            obj_footprint = obj["width_mm"] * obj["depth_mm"]
+            if cumulative_footprint + obj_footprint > max_footprint:
+                msg = (f"{placement.object_type}: 밀도 한도 초과 "
+                       f"({(cumulative_footprint + obj_footprint)/usable_area*100:.1f}% > 25%)")
+                log.append(msg)
+                print(f"[PlacementEngine] DENSITY DROP: {msg}")
+                failed.append({"object_type": placement.object_type, "reason": msg})
+                placed = True  # 루프 탈출 (다음 기물로)
+                break
+
             # 배치 성공
+            cumulative_footprint += obj_footprint
             placed_entry = {
                 **result,
                 "slot_key": slot_key,
@@ -208,6 +239,8 @@ def run_placement_loop(
                 "direction": placement.direction,
                 "placed_because": placement.placed_because,
                 "overlap_margin_mm": obj.get("overlap_margin_mm", 0),
+                "height_mm": obj.get("height_mm", 1000),
+                "category": obj.get("category", ""),
             }
             placed_polygons.append(placed_entry)
 
@@ -225,7 +258,10 @@ def run_placement_loop(
             print(f"[PlacementEngine] FAILED: {msg}")
             failed.append({"object_type": placement.object_type, "reason": msg})
 
-    print(f"[PlacementEngine] done: {len(placed_polygons)} placed, {len(failed)} failed")
+    final_pct = (cumulative_footprint / usable_area * 100) if usable_area > 0 else 0
+    density_dropped = sum(1 for f in failed if "밀도 한도" in f.get("reason", ""))
+    print(f"[PlacementEngine] done: {len(placed_polygons)} placed, {len(failed)} failed, "
+          f"총 면적 대비 점유율: {final_pct:.1f}%, 밀도 초과 삭제: {density_dropped}개")
 
     # existing_placed 제외: 이번 라운드에서 새로 배치된 것만 반환
     new_placed = placed_polygons[len(existing_placed) if existing_placed else 0:]
@@ -256,7 +292,7 @@ def _init_corridor_graph(
         return None, None, None
 
     try:
-        from app.agents.agent2_back import build_corridor_graph, _nearest_node
+        from app.agents.corridor_graph import build_corridor_graph, nearest_node as _nearest_node
 
         dead_zones = space_data.get("dead_zones", [])
         G, nodes = build_corridor_graph(floor_poly, dead_zones=dead_zones)
@@ -285,6 +321,50 @@ def _find_entrance_from_space_data(space_data: dict) -> tuple[float, float] | No
                 min_walk = val["walk_mm"]
                 entrance = (val.get("x_mm", 0), val.get("y_mm", 0))
     return entrance
+
+
+def _check_choke_point_created(
+    new_bbox: Polygon,
+    placed_polygons: list[dict],
+    floor_poly: Polygon | None,
+    space_data: dict,
+) -> bool:
+    """
+    새 bbox 배치 시 입구→내부 동선이 900mm 미만으로 좁아지는지 검사.
+    벽면·기배치 오브젝트와의 gap이 900mm 미만이면서 입구 동선 경로 상에 있으면 True.
+    """
+    if not floor_poly:
+        return False
+
+    MIN_CORRIDOR_MM = 900
+
+    # 새 bbox ↔ 외벽 간 gap 체크
+    wall_gap = floor_poly.exterior.distance(new_bbox)
+    if 0 < wall_gap < MIN_CORRIDOR_MM:
+        # 입구 근처인지 확인 (entrance_buffer 내부이면 동선 차단)
+        entrance_buffer = space_data.get("entrance_buffer")
+        if entrance_buffer and new_bbox.intersects(entrance_buffer.buffer(MIN_CORRIDOR_MM)):
+            return True
+
+    # 새 bbox ↔ 기배치 오브젝트 간 gap 체크
+    for existing in placed_polygons:
+        ep = existing.get("bbox_polygon")
+        if not ep:
+            continue
+        gap = new_bbox.distance(ep)
+        if 0 < gap < MIN_CORRIDOR_MM:
+            # 이 gap이 entrance → deep_zone 동선 상에 있는지 체크
+            # Main Artery와의 교차 확인
+            main_artery = space_data.get("fire", {}).get("main_artery")
+            if main_artery:
+                # 두 오브젝트의 buffer 교집합이 Main Artery를 가로막는지
+                buf_new = new_bbox.buffer(_CORRIDOR_BUFFER_MM)
+                buf_old = ep.buffer(_CORRIDOR_BUFFER_MM)
+                choke_zone = buf_new.intersection(buf_old)
+                if not choke_zone.is_empty and main_artery.intersects(choke_zone):
+                    return True
+
+    return False
 
 
 def _check_corridor_connectivity(
@@ -323,7 +403,7 @@ def _check_corridor_connectivity(
     for slot_key, slot_val in slots.items():
         if slot_key in placed_slot_keys:
             continue
-        from app.agents.agent2_back import _nearest_node
+        from app.agents.corridor_graph import nearest_node as _nearest_node
         slot_node = _nearest_node(nodes, (slot_val["x_mm"], slot_val["y_mm"]))
         if slot_node in G and nx.has_path(G, entrance_node, slot_node):
             return True  # 최소 1개 slot 도달 가능 → 통로 유지
@@ -419,6 +499,11 @@ def _check_pair_constraints(
 def _serialize_placed(p: dict) -> dict:
     """Shapely 객체 제거 후 직렬화 가능한 dict 반환."""
     bbox: Polygon = p["bbox_polygon"]
+
+    # category 유실 차단
+    if "category" not in p or p["category"] is None:
+        print(f"[CRITICAL] Serialization: category missing for {p.get('object_type', '?')} — defaulting to ''")
+
     return {
         "object_type": p["object_type"],
         "center_x_mm": p["center_x_mm"],
@@ -426,6 +511,8 @@ def _serialize_placed(p: dict) -> dict:
         "rotation_deg": p["rotation_deg"],
         "width_mm": p["width_mm"],
         "depth_mm": p["depth_mm"],
+        "height_mm": p.get("height_mm", 1000),
+        "category": p.get("category", ""),
         "slot_key": p["slot_key"],
         "zone_label": p["zone_label"],
         "direction": p["direction"],

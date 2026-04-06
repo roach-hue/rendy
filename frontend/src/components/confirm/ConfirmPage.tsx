@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
+import type { DxfViewport, DetectedPolygon } from "../../api/detect";
 
 interface ConfirmPageProps {
   spaceData: Record<string, unknown>;
@@ -6,6 +7,9 @@ interface ConfirmPageProps {
   scale: number;
   floorFile: File;
   previewBase64?: string;
+  dxfViewport?: DxfViewport;
+  floorPolygonPx?: [number, number][];
+  inaccessibleRooms?: DetectedPolygon[];
   onConfirm: () => void;
 }
 
@@ -15,7 +19,7 @@ const ZONE_COLORS: Record<string, string> = {
   deep_zone:     "#2196f3",
 };
 
-export function ConfirmPage({ spaceData, brandData, scale, floorFile, previewBase64, onConfirm }: ConfirmPageProps) {
+export function ConfirmPage({ spaceData, brandData, scale, floorFile, previewBase64, dxfViewport, floorPolygonPx, inaccessibleRooms, onConfirm }: ConfirmPageProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const imgRef = useRef<HTMLImageElement>(null);
 
@@ -44,7 +48,46 @@ export function ConfirmPage({ spaceData, brandData, scale, floorFile, previewBas
 
   const originOffset = spaceData._origin_offset_mm as [number, number] | undefined;
 
-  // zone 컬러맵 그리기
+  // mm 좌표 → 캔버스 픽셀 변환
+  const toCanvas = useCallback((xMm: number, yMm: number, canvasW: number, canvasH: number): [number, number] => {
+    if (dxfViewport && canvasW > 0 && canvasH > 0) {
+      // DXF 모드: viewport 기반 변환 (Y 반전)
+      const vw = dxfViewport.max_x - dxfViewport.min_x;
+      const vh = dxfViewport.max_y - dxfViewport.min_y;
+      const scX = canvasW / vw;
+      const scY = canvasH / vh;
+      const sc = Math.min(scX, scY);
+      const offX = (canvasW - vw * sc) / 2;
+      const offY = (canvasH - vh * sc) / 2;
+      // space_data의 mm 좌표는 원점 정규화 후 (0,0 기준)
+      // dxf_viewport는 DXF 원본 좌표 기준이므로, origin_offset 역산 필요
+      const [oxMm, oyMm] = originOffset ?? [0, 0];
+      const dxfX = xMm + oxMm;
+      const dxfY = yMm + oyMm;
+      const cx = offX + (dxfX - dxfViewport.min_x) * sc;
+      const cy = canvasH - (offY + (dxfY - dxfViewport.min_y) * sc);
+      return [cx, cy];
+    }
+    // 이미지 모드: mm → px 직접 변환
+    const [oxMm, oyMm] = originOffset ?? [0, 0];
+    return [((xMm) + oxMm) / scale, ((yMm) + oyMm) / scale];
+  }, [dxfViewport, originOffset, scale]);
+
+  // floor polygon → 캔버스 좌표 (clip + point-in-polygon 용)
+  const getFloorCanvasPath = useCallback((w: number, h: number): [number, number][] | null => {
+    if (!floorPolygonPx || floorPolygonPx.length < 3) return null;
+    return floorPolygonPx.map(([x, y]) => toCanvas(x, y, w, h));
+  }, [floorPolygonPx, toCanvas]);
+
+  // inaccessible rooms → 캔버스 좌표
+  const getInaccessiblePaths = useCallback((w: number, h: number): [number, number][][] => {
+    if (!inaccessibleRooms) return [];
+    return inaccessibleRooms.map(room =>
+      room.polygon_px.map(([x, y]) => toCanvas(x, y, w, h))
+    );
+  }, [inaccessibleRooms, toCanvas]);
+
+  // zone 컬러맵 — Voronoi grid fill + floor polygon clip + inaccessible 차감
   const drawZoneMap = useCallback(() => {
     const img = imgRef.current;
     const canvas = canvasRef.current;
@@ -57,51 +100,111 @@ export function ConfirmPage({ spaceData, brandData, scale, floorFile, previewBas
     if (!ctx) return;
     ctx.clearRect(0, 0, w, h);
 
-    const [oxMm, oyMm] = originOffset ?? [0, 0];
-
-    // slot을 zone별로 그룹화
-    const zonePoints: Record<string, [number, number][]> = {};
+    // slot → 캔버스 좌표 + zone 매핑
+    const slotData: { cx: number; cy: number; zone: string }[] = [];
     for (const [, slot] of slots) {
       const s = slot as Record<string, unknown>;
-      const zone = String(s.zone_label);
-      const xPx = ((s.x_mm as number) + oxMm) / scale;
-      const yPx = ((s.y_mm as number) + oyMm) / scale;
-      if (!zonePoints[zone]) zonePoints[zone] = [];
-      zonePoints[zone].push([xPx, yPx]);
+      const [cx, cy] = toCanvas(s.x_mm as number, s.y_mm as number, w, h);
+      slotData.push({ cx, cy, zone: String(s.zone_label) });
     }
 
-    // 각 zone의 convex hull → 반투명 채움
-    for (const [zone, points] of Object.entries(zonePoints)) {
-      if (points.length < 3) continue;
-      const hull = _convexHull(points);
-      const color = ZONE_COLORS[zone] ?? "#999";
+    if (slotData.length === 0) return;
 
-      // 영역을 확장 (padding) — slot이 벽면이라 내부로 넓혀야 자연스러움
-      const expanded = _expandHull(hull, 80);
+    // floor polygon 캔버스 좌표 (clip용)
+    const floorPath = getFloorCanvasPath(w, h);
+    const inaccessiblePaths = getInaccessiblePaths(w, h);
 
-      ctx.beginPath();
-      ctx.moveTo(expanded[0][0], expanded[0][1]);
-      for (let i = 1; i < expanded.length; i++) {
-        ctx.lineTo(expanded[i][0], expanded[i][1]);
+    // 저해상도 offscreen canvas로 Voronoi grid fill
+    const GRID = 4;
+    const gridW = Math.ceil(w / GRID);
+    const gridH = Math.ceil(h / GRID);
+    const offscreen = document.createElement("canvas");
+    offscreen.width = gridW;
+    offscreen.height = gridH;
+    const offCtx = offscreen.getContext("2d")!;
+
+    const zoneRgba: Record<string, [number, number, number]> = {
+      entrance_zone: [76, 175, 80],
+      mid_zone: [255, 152, 0],
+      deep_zone: [33, 150, 243],
+    };
+
+    const imageData = offCtx.createImageData(gridW, gridH);
+    const data = imageData.data;
+
+    for (let gy = 0; gy < gridH; gy++) {
+      for (let gx = 0; gx < gridW; gx++) {
+        const px = gx * GRID;
+        const py = gy * GRID;
+
+        // floor polygon 내부인지 체크
+        if (floorPath && !_pointInPoly(px, py, floorPath)) continue;
+
+        // inaccessible room 내부이면 스킵
+        let inInaccessible = false;
+        for (const path of inaccessiblePaths) {
+          if (_pointInPoly(px, py, path)) { inInaccessible = true; break; }
+        }
+        if (inInaccessible) continue;
+
+        // 최근접 slot → zone 결정
+        let bestDist = Infinity;
+        let bestZone = "";
+        for (const s of slotData) {
+          const d = (px - s.cx) ** 2 + (py - s.cy) ** 2;
+          if (d < bestDist) { bestDist = d; bestZone = s.zone; }
+        }
+
+        const rgb = zoneRgba[bestZone] ?? [153, 153, 153];
+        const idx = (gy * gridW + gx) * 4;
+        data[idx] = rgb[0];
+        data[idx + 1] = rgb[1];
+        data[idx + 2] = rgb[2];
+        data[idx + 3] = 45;
       }
-      ctx.closePath();
-      ctx.fillStyle = color + "30"; // 투명도 ~19%
-      ctx.fill();
-      ctx.strokeStyle = color + "60";
-      ctx.lineWidth = 2;
-      ctx.stroke();
+    }
 
-      // zone 라벨
-      const cx = points.reduce((s, p) => s + p[0], 0) / points.length;
-      const cy = points.reduce((s, p) => s + p[1], 0) / points.length;
+    offCtx.putImageData(imageData, 0, 0);
+
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(offscreen, 0, 0, gridW, gridH, 0, 0, w, h);
+
+    // inaccessible 영역 표시 (사선 해칭)
+    for (const path of inaccessiblePaths) {
+      if (path.length < 3) continue;
+      ctx.beginPath();
+      ctx.moveTo(path[0][0], path[0][1]);
+      for (let i = 1; i < path.length; i++) ctx.lineTo(path[i][0], path[i][1]);
+      ctx.closePath();
+      ctx.fillStyle = "rgba(0,0,0,0.08)";
+      ctx.fill();
+      ctx.strokeStyle = "rgba(0,0,0,0.3)";
+      ctx.lineWidth = 1;
+      ctx.setLineDash([6, 4]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    // zone 라벨
+    const zoneCenters: Record<string, { sx: number; sy: number; count: number }> = {};
+    for (const s of slotData) {
+      if (!zoneCenters[s.zone]) zoneCenters[s.zone] = { sx: 0, sy: 0, count: 0 };
+      zoneCenters[s.zone].sx += s.cx;
+      zoneCenters[s.zone].sy += s.cy;
+      zoneCenters[s.zone].count++;
+    }
+    for (const [zone, c] of Object.entries(zoneCenters)) {
+      const cx = c.sx / c.count;
+      const cy = c.sy / c.count;
+      const rgb = zoneRgba[zone] ?? [153, 153, 153];
       ctx.font = "bold 14px sans-serif";
       ctx.textAlign = "center";
-      ctx.fillStyle = color;
+      ctx.fillStyle = `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`;
       ctx.fillText(zone.replace("_", " "), cx, cy);
     }
 
-    console.debug("[ConfirmPage] zone map drawn:", Object.keys(zonePoints));
-  }, [slots, scale, originOffset]);
+    console.debug("[ConfirmPage] zone voronoi drawn:", Object.keys(zoneCenters));
+  }, [slots, toCanvas, getFloorCanvasPath, getInaccessiblePaths]);
 
   useEffect(() => { drawZoneMap(); }, [drawZoneMap]);
 
@@ -189,45 +292,19 @@ export function ConfirmPage({ spaceData, brandData, scale, floorFile, previewBas
   );
 }
 
-// ── Convex Hull (Graham Scan) ───────────────────────────────────────────────
+// ── Point-in-polygon (ray casting) ──────────────────────────────────────────
 
-function _convexHull(points: [number, number][]): [number, number][] {
-  if (points.length < 3) return [...points];
-
-  const sorted = [...points].sort((a, b) => a[0] - b[0] || a[1] - b[1]);
-
-  function cross(o: [number, number], a: [number, number], b: [number, number]) {
-    return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+function _pointInPoly(px: number, py: number, poly: [number, number][]): boolean {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [xi, yi] = poly[i];
+    const [xj, yj] = poly[j];
+    if ((yi > py) !== (yj > py) && px < ((xj - xi) * (py - yi)) / (yj - yi) + xi)
+      inside = !inside;
   }
-
-  const lower: [number, number][] = [];
-  for (const p of sorted) {
-    while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], p) <= 0)
-      lower.pop();
-    lower.push(p);
-  }
-
-  const upper: [number, number][] = [];
-  for (const p of sorted.reverse()) {
-    while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], p) <= 0)
-      upper.pop();
-    upper.push(p);
-  }
-
-  return [...lower.slice(0, -1), ...upper.slice(0, -1)];
+  return inside;
 }
 
-function _expandHull(hull: [number, number][], padding: number): [number, number][] {
-  // centroid 기준으로 각 꼭짓점을 바깥으로 밀어냄
-  const cx = hull.reduce((s, p) => s + p[0], 0) / hull.length;
-  const cy = hull.reduce((s, p) => s + p[1], 0) / hull.length;
-  return hull.map(([x, y]) => {
-    const dx = x - cx;
-    const dy = y - cy;
-    const len = Math.hypot(dx, dy) || 1;
-    return [x + (dx / len) * padding, y + (dy / len) * padding] as [number, number];
-  });
-}
 
 // ── UI 컴포넌트 ──────────────────────────────────────────────────────────────
 

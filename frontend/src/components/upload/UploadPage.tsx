@@ -11,6 +11,7 @@ export function UploadPage({ onComplete }: UploadPageProps) {
   const [brandFile, setBrandFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [dwgWarning, setDwgWarning] = useState(false);
 
   async function handleSubmit() {
     if (!floorFile || !brandFile) return;
@@ -34,18 +35,34 @@ export function UploadPage({ onComplete }: UploadPageProps) {
       <h2 style={styles.title}>도면 + 브랜드 메뉴얼 업로드</h2>
 
       <div style={styles.card}>
-        <label style={styles.label}>평면도 * (DXF / PDF / PNG · JPG)</label>
-        <input type="file" accept=".dxf,.pdf,.png,.jpg,.jpeg"
-          onChange={e => setFloorFile(e.target.files?.[0] ?? null)} />
+        <label style={styles.label}>평면도 * (DXF / DWG / PDF / PNG · JPG)</label>
+        <input type="file" accept=".dxf,.dwg,.pdf,.png,.jpg,.jpeg"
+          onChange={e => {
+            const f = e.target.files?.[0] ?? null;
+            setFloorFile(f);
+            if (f && f.name.toLowerCase().endsWith(".dwg")) {
+              setDwgWarning(true);
+            } else {
+              setDwgWarning(false);
+            }
+          }} />
 
         <label style={styles.label}>단면도 (선택 — ceiling height 추출용)</label>
-        <input type="file" accept=".dxf,.pdf,.png,.jpg,.jpeg"
+        <input type="file" accept=".dxf,.dwg,.pdf,.png,.jpg,.jpeg"
           onChange={e => setSectionFile(e.target.files?.[0] ?? null)} />
 
         <label style={styles.label}>브랜드 메뉴얼 * (PDF)</label>
         <input type="file" accept=".pdf"
           onChange={e => setBrandFile(e.target.files?.[0] ?? null)} />
       </div>
+
+      {dwgWarning && (
+        <div style={{ padding: 12, background: "#fff3e0", borderRadius: 8, marginBottom: 12, fontSize: 13, color: "#e65100" }}>
+          <strong>DWG 파일 안내:</strong> DWG 변환에는 서버에 ODA File Converter가 설치되어 있어야 합니다.
+          상업용 서버 환경에서는 ODA 라이선스 확인이 필요합니다.
+          변환 실패 시 DXF로 내보내기 후 업로드하세요.
+        </div>
+      )}
 
       {error && <p style={styles.error}>{error}</p>}
 

@@ -62,11 +62,19 @@ def calculate_position(
     else:
         center, code_angle = _wall_facing(slot, depth)
 
-    # rotation_deg 15° 안전장치
-    final_angle = _apply_rotation_override(code_angle, placement.rotation_deg)
+    # alignment → 실제 각도 산출 (벽 실수 각도 기반)
+    alignment = getattr(placement, "alignment", "parallel")
+    wall_angle = slot.get("wall_angle_deg")
 
-    # Wall Snapping: 가장 가까운 벽 선분에 직교 정렬
-    snapped_angle = _snap_to_nearest_wall(center, final_angle, space_data)
+    if wall_angle is not None:
+        snapped_angle = _alignment_to_angle(alignment, wall_angle, code_angle)
+    else:
+        # wall_angle 없으면 최근접 벽 탐색 후 적용
+        nearest_wall_angle = _find_nearest_wall_angle(center, space_data)
+        if nearest_wall_angle is not None:
+            snapped_angle = _alignment_to_angle(alignment, nearest_wall_angle, code_angle)
+        else:
+            snapped_angle = code_angle
 
     # Shapely bbox polygon 생성
     bbox = _make_rotated_rect(center, width, depth, snapped_angle)
@@ -81,10 +89,10 @@ def calculate_position(
         "object_type": placement.object_type,
     }
 
-    print(f"[CalcPos] {placement.object_type} → dir={direction}, "
+    print(f"[CalcPos] {placement.object_type} → dir={direction}, align={alignment}, "
           f"center=({result['center_x_mm']}, {result['center_y_mm']}), "
-          f"code_angle={code_angle:.1f}°, snap={snapped_angle:.1f}°, "
-          f"bbox={width}x{depth}mm")
+          f"wall={wall_angle if wall_angle is not None else '?'}°, "
+          f"final={snapped_angle:.1f}°, bbox={width}x{depth}mm")
 
     return result
 
@@ -106,20 +114,34 @@ def _wall_facing(
     proj_dist = wall_ls.project(ref_point)
     foot = wall_ls.interpolate(proj_dist)
 
-    # 벽 법선 방향 계산
-    normal = slot["wall_normal"]
-    nx, ny = _normal_to_vector(normal)
+    # 벽 법선 방향 계산 (실수 벡터 우선, 문자열 fallback)
+    if "wall_normal_vec" in slot:
+        nx, ny = slot["wall_normal_vec"]
+    else:
+        normal = slot["wall_normal"]
+        nx, ny = _normal_to_vector(normal)
 
     # foot에서 법선 방향으로 depth/2 이동 → 오브젝트 중심
-    cx = foot.x + nx * (depth / 2)
-    cy = foot.y + ny * (depth / 2)
+    offset = depth / 2
+    cx = foot.x + nx * offset
+    cy = foot.y + ny * offset
+
+    # floor 내부 확인 — 밖이면 반대 방향 시도
+    floor_poly = slot.get("_floor_poly")
+    if floor_poly and not floor_poly.contains(Point(cx, cy)):
+        cx_rev = foot.x - nx * offset
+        cy_rev = foot.y - ny * offset
+        if floor_poly.contains(Point(cx_rev, cy_rev)):
+            cx, cy = cx_rev, cy_rev
+            nx, ny = -nx, -ny
 
     # 회전각: 벽 방향 (법선의 90도 회전 = width가 벽을 따라 정렬)
     # 법선 (nx, ny) → 벽 방향 (-ny, nx)
     angle = math.degrees(math.atan2(nx, -ny))
 
+    normal_label = slot.get("wall_normal", f"({nx:.2f},{ny:.2f})")
     print(f"[CalcPos] wall_facing: foot=({foot.x:.0f},{foot.y:.0f}), "
-          f"normal={normal}, wall_angle={angle:.1f}°, offset={depth/2:.0f}mm")
+          f"normal={normal_label}, wall_angle={angle:.1f}°, offset={offset:.0f}mm")
 
     return (cx, cy), angle
 
@@ -256,52 +278,58 @@ def _angle_diff(a: float, b: float) -> float:
     return abs(((a - b + 540) % 360) - 180)
 
 
-def _snap_to_nearest_wall(
+def _alignment_to_angle(alignment: str, wall_angle_deg: float, code_angle: float) -> float:
+    """
+    alignment Enum + 벽 실수 각도 → 최종 회전각 산출.
+
+    parallel:      벽과 나란히 (wall_angle 또는 wall_angle+180 중 code_angle에 가까운 쪽)
+    perpendicular: 벽에서 수직 (wall_angle+90 또는 wall_angle+270 중 가까운 쪽)
+    opposite:      벽 반대 방향 (wall_angle+180)
+    none:          code_angle 그대로 (벽 무시)
+    """
+    if alignment == "none":
+        return code_angle
+
+    if alignment == "parallel":
+        candidates = [wall_angle_deg % 360, (wall_angle_deg + 180) % 360]
+    elif alignment == "perpendicular":
+        candidates = [(wall_angle_deg + 90) % 360, (wall_angle_deg + 270) % 360]
+    elif alignment == "opposite":
+        return (wall_angle_deg + 180) % 360
+    else:
+        candidates = [wall_angle_deg % 360, (wall_angle_deg + 180) % 360]
+
+    return min(candidates, key=lambda c: _angle_diff(code_angle, c))
+
+
+def _find_nearest_wall_angle(
     center: tuple[float, float],
-    angle: float,
     space_data: dict,
-) -> float:
-    """
-    Wall Snapping: 배치 위치에서 가장 가까운 벽 선분의 각도를 기준으로
-    평행/직교 4방향 중 code_angle에 가장 가까운 방향으로 snap.
+) -> float | None:
+    """배치 위치에서 가장 가까운 벽 선분의 실수 각도 반환."""
+    all_walls = space_data.get("all_wall_linestrings", [])
 
-    순환 각도 산술: (a - b + 540) % 360 - 180 으로 최단 차이 계산.
-    """
-    floor_poly = space_data.get("floor", {}).get("polygon")
-    if not floor_poly or not hasattr(floor_poly, "exterior"):
-        return _snap_ortho(angle)
+    if not all_walls:
+        floor_poly = space_data.get("floor", {}).get("polygon")
+        if not floor_poly or not hasattr(floor_poly, "exterior"):
+            return None
+        coords = list(floor_poly.exterior.coords)
+        all_walls = [LineString([coords[i], coords[i + 1]]) for i in range(len(coords) - 1)]
 
-    # 가장 가까운 외벽 선분 찾기
     center_pt = Point(center[0], center[1])
-    coords = list(floor_poly.exterior.coords)
-    best_wall_angle = None
+    best_angle = None
     best_dist = float("inf")
 
-    for i in range(len(coords) - 1):
-        seg = LineString([coords[i], coords[i + 1]])
+    for seg in all_walls:
+        if seg.length < 10:
+            continue
         d = seg.distance(center_pt)
         if d < best_dist:
             best_dist = d
-            dx = coords[i + 1][0] - coords[i][0]
-            dy = coords[i + 1][1] - coords[i][1]
-            best_wall_angle = math.degrees(math.atan2(dy, dx))
+            c0, c1 = seg.coords[0], seg.coords[1]
+            best_angle = math.degrees(math.atan2(c1[1] - c0[1], c1[0] - c0[0]))
 
-    if best_wall_angle is None:
-        return _snap_ortho(angle)
-
-    # 벽 각도 기준 직교 4방향
-    candidates = [(best_wall_angle + offset) % 360 for offset in [0, 90, 180, 270]]
-
-    # code_angle에 가장 가까운 직교 방향 선택 (순환 안전)
-    snapped = min(candidates, key=lambda c: _angle_diff(angle, c))
-
-    return snapped
-
-
-def _snap_ortho(angle: float) -> float:
-    """벽 정보가 없을 때 0/90/180/270으로 snap."""
-    candidates = [0, 90, 180, 270]
-    return min(candidates, key=lambda c: _angle_diff(angle, c))
+    return best_angle
 
 
 # ── 기하 헬퍼 ────────────────────────────────────────────────────────────────
@@ -328,13 +356,16 @@ def _make_rotated_rect(
 
 
 def _normal_to_vector(normal: str) -> tuple[float, float]:
-    """wall_normal 문자열 → 단위 벡터."""
+    """
+    wall_normal 문자열 → 단위 벡터 (Y-up 좌표계).
+    DXF 표준: North = +Y, South = -Y, East = +X, West = -X.
+    """
     return {
-        "north": (0.0, -1.0),
-        "south": (0.0, 1.0),
+        "north": (0.0, 1.0),
+        "south": (0.0, -1.0),
         "east":  (1.0, 0.0),
         "west":  (-1.0, 0.0),
-    }.get(normal, (0.0, -1.0))
+    }.get(normal, (0.0, 1.0))
 
 
 def _get_entrance(space_data: dict) -> tuple[float, float] | None:
