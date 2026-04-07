@@ -106,6 +106,24 @@ def cache_load() -> dict:
     return data
 
 
+@router.get("/session/{session_key}")
+def get_session(session_key: str) -> dict:
+    """DB에서 세션 복원."""
+    from app.api.session_store import load_session
+    data = load_session(session_key)
+    if data is None:
+        raise HTTPException(status_code=404, detail="세션 없음")
+    return data
+
+
+@router.delete("/session/{session_key}")
+def remove_session(session_key: str) -> dict:
+    """DB 세션 삭제."""
+    from app.api.session_store import delete_session
+    delete_session(session_key)
+    return {"deleted": session_key}
+
+
 @router.get("/objects")
 def list_objects(brand_id: str = "sanrio") -> list:
     """오브젝트 목록 조회."""

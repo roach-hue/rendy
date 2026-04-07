@@ -6,7 +6,10 @@ export default defineConfig({
   server: {
     port: 5174,
     proxy: {
-      "/api": "http://localhost:8001",
+      "/api": {
+        target: "http://localhost:8001",
+        timeout: 300000,  // 5분 — LLM 호출 + rate limit 대기 포함
+      },
     },
   },
 });

@@ -46,15 +46,28 @@ def run_placement_pipeline(
     cache_key = _compute_drawings_hash(drawings_json, scale_mm_per_px)
     cache_file = _PLACEMENT_CACHE_DIR / f"{cache_key}.json"
 
-    # 캐시 히트 → LLM 0회
+    # 캐시 히트: 로컬 파일 → DB fallback → LLM 0회
     if cache_file.exists():
         try:
             cached = _json.loads(cache_file.read_text(encoding="utf-8"))
             elapsed = time.time() - t0
-            print(f"[Pipeline] CACHE HIT: {cache_key} → {elapsed:.2f}s (LLM 0회)")
+            print(f"[Pipeline] CACHE HIT (local): {cache_key} → {elapsed:.2f}s (LLM 0회)")
             return cached
         except Exception as e:
-            print(f"[Pipeline] cache read failed: {e} — full pipeline")
+            print(f"[Pipeline] local cache read failed: {e}")
+
+    # DB fallback: 로컬 캐시 없어도 DB에 있으면 복원
+    from app.api.session_store import load_session
+    db_cached = load_session(cache_key)
+    if db_cached:
+        # 로컬 캐시 복원
+        try:
+            cache_file.write_text(_json.dumps(db_cached, ensure_ascii=False), encoding="utf-8")
+        except Exception:
+            pass
+        elapsed = time.time() - t0
+        print(f"[Pipeline] CACHE HIT (DB): {cache_key} → {elapsed:.2f}s (LLM 0회)")
+        return db_cached
 
     print("[Pipeline] placement request received (cache miss)")
     drawings = ParsedDrawings.model_validate(drawings_json)
@@ -116,13 +129,17 @@ def run_placement_pipeline(
         "floor_viz": floor_viz,
     })
 
-    # 배치 결과 캐시 저장
+    # 배치 결과 캐시 저장 (로컬 파일 + DB 병행)
     try:
         cache_file.write_text(_json.dumps(response, ensure_ascii=False), encoding="utf-8")
         elapsed = time.time() - t0
-        print(f"[Pipeline] CACHE SAVE: {cache_key} ({elapsed:.1f}s)")
+        print(f"[Pipeline] CACHE SAVE (local): {cache_key} ({elapsed:.1f}s)")
     except Exception as e:
-        print(f"[Pipeline] cache save failed: {e}")
+        print(f"[Pipeline] local cache save failed: {e}")
+
+    # DB 영속화
+    from app.api.session_store import save_session
+    save_session(cache_key, response)
 
     return response
 
