@@ -98,7 +98,7 @@ def assign_walk_mm(
 
     # ── Main Artery: 관통 동선 식별 ──────────────────────────────────────────
     main_artery = _compute_main_artery(
-        G, nodes, entrance_coords, entrance_types, entrance_nodes, usable_poly
+        G, nodes, entrance_coords, entrance_types, usable_poly
     )
 
     return main_artery
@@ -109,7 +109,6 @@ def _compute_main_artery(
     nodes: dict,
     entrance_coords: list[tuple[float, float]],
     entrance_types: list[str],
-    _entrance_nodes: list[tuple[int, int]],
     usable_poly: Polygon,
 ) -> LineString:
     """

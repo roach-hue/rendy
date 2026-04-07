@@ -121,10 +121,8 @@ def plan_placement(
     agent3_summary = space_data.get("_agent3_summary", "공간 요약 없음")
 
     # MAX_AVAILABLE_SLOTS: 공간의 물리적 배치 가능 수
-    max_slots = sum(
-        1 for k, v in space_data.items()
-        if isinstance(v, dict) and "zone_label" in v and k != "floor"
-    )
+    from app.schemas.space_data import extract_slots
+    max_slots = len(extract_slots(space_data))
 
     # Main Spine 경유점 추출 (Agent 3에 동선 구조 전달)
     spine_text = _format_spine_info(space_data)

@@ -13,10 +13,8 @@ def deterministic_fallback(
 ) -> dict:
     """zone 무시, 전체 slot 강제 배치. 불가 시 drop."""
     obj_map = {o["object_type"]: o for o in eligible_objects}
-    all_slots = {
-        k: v for k, v in space_data.items()
-        if isinstance(v, dict) and "zone_label" in v and k != "floor"
-    }
+    from app.schemas.space_data import extract_slots
+    all_slots = extract_slots(space_data)
 
     placed = []
     dropped = []

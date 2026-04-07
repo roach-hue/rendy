@@ -19,10 +19,8 @@ def classify_failures(
         for p in original_placements:
             orig_map[p.object_type] = p
 
-    available_zones = set()
-    for k, v in space_data.items():
-        if isinstance(v, dict) and "zone_label" in v and k != "floor":
-            available_zones.add(v["zone_label"])
+    from app.schemas.space_data import extract_slots
+    available_zones = {v["zone_label"] for v in extract_slots(space_data).values()}
 
     for f in failed:
         obj_type = f["object_type"]
