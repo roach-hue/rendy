@@ -190,6 +190,22 @@ def run(
             for e in fp_entrances_snapped
         ]
 
+    # 모든 입구 좌표를 space_data에 저장 (3D 시각화용)
+    all_entrance_coords_mm = []
+    if entrance_mm:
+        all_entrance_coords_mm.append(entrance_mm)
+    if entrances_mm_for_walk:
+        for ent in entrances_mm_for_walk:
+            coord = ent["coord"]
+            # 주출입구와 동일 위치 중복 제거
+            if all_entrance_coords_mm and (
+                abs(coord[0] - all_entrance_coords_mm[0][0]) < 100 and
+                abs(coord[1] - all_entrance_coords_mm[0][1]) < 100
+            ):
+                continue
+            all_entrance_coords_mm.append(coord)
+    space_data["_entrance_coords_mm"] = all_entrance_coords_mm
+
     if entrance_mm:
         main_artery = assign_walk_mm(
             slots, entrance_mm, usable_poly, dead_zones,
@@ -205,21 +221,74 @@ def run(
     # ── Step 5.5: Semantic Tag ────────────────────────────────────────────
     assign_semantic_tags(slots, usable_poly, entrance_mm)
 
+    # ── Step 6: Spine 거리 메타데이터 부여 ────────────────────────────────
+    main_artery = space_data.get("fire", {}).get("main_artery")
+    if main_artery:
+        _assign_spine_proximity(slots, main_artery)
+
     for key, slot in slots.items():
         space_data[key] = slot
 
-    # ── Step 6.5: Virtual Entrance ────────────────────────────────────────
+    # ── Step 6.5: Virtual Entrance (복수 입구 대응) ─────────────────────
+    entrance_width = fp.entrance_width_mm or 2000.0
+    all_entrance_buffers = []
+
     if entrance_mm:
-        entrance_width = fp.entrance_width_mm or 2000.0
         entrance_line, entrance_buffer = build_virtual_entrance(
             entrance_mm, usable_poly, entrance_width
         )
         space_data["entrance_line"] = entrance_line
         space_data["entrance_buffer"] = entrance_buffer
-        print(f"[Agent2] virtual entrance: width={entrance_width}mm, "
-              f"buffer area={entrance_buffer.area:.0f}mm²")
+        all_entrance_buffers.append(entrance_buffer)
+
+    # 추가 입구 buffer 생성 (EMERGENCY_EXIT 등)
+    if entrances_mm_for_walk:
+        for ent in entrances_mm_for_walk:
+            coord = ent["coord"]
+            if entrance_mm and (abs(coord[0] - entrance_mm[0]) < 100 and
+                                abs(coord[1] - entrance_mm[1]) < 100):
+                continue  # 주출입구와 동일 위치 → 중복 skip
+            _, extra_buffer = build_virtual_entrance(coord, usable_poly, entrance_width)
+            all_entrance_buffers.append(extra_buffer)
+
+    # 모든 입구 buffer 병합 → placement_engine static_cache용
+    if len(all_entrance_buffers) > 1:
+        space_data["entrance_buffer"] = unary_union(all_entrance_buffers)
+
+    print(f"[Agent2] virtual entrance: {len(all_entrance_buffers)} entrances, "
+          f"width={entrance_width}mm")
 
     # ── Step 7: Agent 3용 자연어 요약 ─────────────────────────────────────
     space_data["_agent3_summary"] = make_agent3_summary(slots, space_data)
 
     return space_data
+
+
+def _assign_spine_proximity(
+    slots: dict[str, dict],
+    main_artery: LineString,
+) -> None:
+    """
+    각 슬롯에 주동선(Spine) 거리 기반 메타데이터 부여.
+
+    추가 필드:
+    - spine_dist_mm: 슬롯과 Spine 사이 최단 거리 (mm)
+    - spine_rank: "adjacent" (2m 이내) | "nearby" (5m 이내) | "far"
+    """
+    for slot in slots.values():
+        pt = Point(slot["x_mm"], slot["y_mm"])
+        dist = main_artery.distance(pt)
+        slot["spine_dist_mm"] = round(dist)
+
+        if dist <= 2000:
+            slot["spine_rank"] = "adjacent"
+        elif dist <= 5000:
+            slot["spine_rank"] = "nearby"
+        else:
+            slot["spine_rank"] = "far"
+
+    counts = {"adjacent": 0, "nearby": 0, "far": 0}
+    for slot in slots.values():
+        counts[slot.get("spine_rank", "far")] += 1
+    print(f"[Agent2] spine proximity: adjacent={counts['adjacent']}, "
+          f"nearby={counts['nearby']}, far={counts['far']}")

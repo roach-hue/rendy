@@ -86,6 +86,21 @@ placed_because에 "같은 카테고리 군집" 또는 "브랜드 월(Brand Wall)
 입구 정면 시야의 끝(deep_zone, walk_mm 최대 구역)에 고객의 심부 진입을 유도하는 대형 오브젝트를 강제 배치하라.
 photo_zone_structure, 대형 캐릭터 패널, 미디어 기물 등 height_mm가 가장 크고 시각적으로 압도적인 기물이 Focal Point 후보.
 Focal Point가 없으면 고객이 입구에서 돌아서므로, deep_zone에 반드시 1개 이상 대형 기물을 배치.
+
+[P4. 주동선 종속 배치 — Spine-First Placement]
+공간에는 입구에서 가장 깊은 벽면 중앙까지 관통하는 직각 주동선(Main Spine)이 미리 깔려 있다.
+각 슬롯에는 주동선과의 논리적 거리를 나타내는 spine 메타데이터가 부여되어 있다:
+  - spine=adjacent: 주동선에서 2m 이내. 고객이 반드시 지나가는 핵심 구역.
+  - spine=nearby: 주동선에서 2~5m. 동선에서 한 눈에 보이는 준핵심 구역.
+  - spine=far: 주동선에서 5m 이상. 동선에서 벗어난 보조 구역.
+배치 원칙:
+  - Hero Object(캐릭터, 메인 매대, 포토존): 반드시 spine=adjacent 슬롯에만 배치.
+  - 진열 선반, 체험 테이블: spine=adjacent 또는 spine=nearby 슬롯에 배치.
+  - 배너, 보조 선반: spine=far 슬롯에 배치 가능. 핵심 기물은 절대 far에 놓지 마라.
+기물의 정면(direction)은 주동선을 향해야 한다:
+  - 주동선 양측 벽면의 기물 → direction="inward" (동선 쪽을 바라봄)
+  - 주동선 끝(Focal Point) → direction="inward" (걸어오는 고객을 맞이함)
+placed_because에 "주동선 인접(adjacent) 배치" 또는 "동선 끝 Focal Point" 등 동선 종속 의도를 명시.
 """
 
 
@@ -110,6 +125,9 @@ def plan_placement(
         1 for k, v in space_data.items()
         if isinstance(v, dict) and "zone_label" in v and k != "floor"
     )
+
+    # Main Spine 경유점 추출 (Agent 3에 동선 구조 전달)
+    spine_text = _format_spine_info(space_data)
 
     # Agent 3에는 object_type + category + height_mm 전달 (좌표 금지, 규격은 허용)
     obj_list = [
@@ -138,6 +156,9 @@ IQI_RECOMMENDED_COUNT = {recommended_count}
 기물 평균 면적 = {avg_footprint/1_000_000:.2f}m² → 적정 배치 수 = {recommended_count}개
 {recommended_count}개를 목표로 기획하라. {max_slots}개를 절대 초과하지 마라.
 슬롯을 다 채우지 말고, 동선 확보와 시각적 여유를 위해 적정 수량만 선별하라.
+
+## 주동선(Main Spine) 구조
+{spine_text}
 
 ## 배치 가능 오브젝트 (후보)
 {json.dumps(obj_list, ensure_ascii=False, indent=2)}
@@ -232,6 +253,75 @@ def _parse_and_validate(raw: str, eligible_objects: list[dict]) -> list[Placemen
         raise ValueError("유효한 Placement 0개")
 
     return placements
+
+
+def _format_spine_info(space_data: dict) -> str:
+    """
+    Main Spine 경유점을 Agent 3용 자연어 요약으로 변환.
+    좌표 수치는 전달하지 않음 — 방향과 구조만 서술.
+    """
+    artery = space_data.get("fire", {}).get("main_artery")
+    if not artery or not hasattr(artery, "coords"):
+        return "주동선 정보 없음"
+
+    coords = list(artery.coords)
+    if len(coords) < 2:
+        return "주동선 정보 없음"
+
+    # 경유점 추출 (방향 전환점)
+    turns = [coords[0]]
+    for i in range(1, len(coords) - 1):
+        px, py = coords[i - 1]
+        cx, cy = coords[i]
+        nx_, ny = coords[i + 1]
+        cross = (cx - px) * (ny - cy) - (cy - py) * (nx_ - cx)
+        if abs(cross) > 0.01:
+            turns.append(coords[i])
+    turns.append(coords[-1])
+
+    # 바닥 bounds 기준 상대 위치 서술
+    floor = space_data.get("floor", {})
+    poly = floor.get("polygon")
+    if poly:
+        minx, miny, maxx, maxy = poly.bounds
+    else:
+        minx, miny, maxx, maxy = 0, 0, 100000, 100000
+
+    width = maxx - minx
+    height = maxy - miny
+
+    def _describe_pos(x: float, y: float) -> str:
+        """좌표를 상대 위치 서술로 변환."""
+        rx = (x - minx) / width if width > 0 else 0.5
+        ry = (y - miny) / height if height > 0 else 0.5
+        h = "좌측" if rx < 0.33 else ("중앙" if rx < 0.66 else "우측")
+        v = "상단" if ry < 0.33 else ("중간" if ry < 0.66 else "하단")
+        return f"{v} {h}"
+
+    lines = [f"입구에서 매장 가장 깊은 벽면 중앙까지 직각 주동선이 깔려 있습니다."]
+    lines.append(f"경유점 {len(turns)}개:")
+    for i, (x, y) in enumerate(turns):
+        label = "입구" if i == 0 else ("종점(Deep Wall 중앙)" if i == len(turns) - 1 else f"꺾임점{i}")
+        pos = _describe_pos(x, y)
+        lines.append(f"  [{i}] {label} — {pos}")
+
+    # 구간별 방향 서술
+    for i in range(len(turns) - 1):
+        sx, sy = turns[i]
+        ex, ey = turns[i + 1]
+        dx = ex - sx
+        dy = ey - sy
+        if abs(dx) < abs(dy) * 0.1:
+            direction = "아래로 직진" if dy > 0 else "위로 직진"
+        elif abs(dy) < abs(dx) * 0.1:
+            direction = "오른쪽으로 직진" if dx > 0 else "왼쪽으로 직진"
+        else:
+            direction = "대각선 이동"
+        lines.append(f"  구간 {i}→{i+1}: {direction}")
+
+    lines.append("핵심 기물은 이 주동선이 지나는 구역(인접 벽면/슬롯)에 우선 배치하세요.")
+    lines.append("기물 정면(direction)은 주동선을 향해야 합니다.")
+    return "\n".join(lines)
 
 
 def _format_brand_constraints(brand_data: dict) -> str:

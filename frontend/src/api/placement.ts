@@ -28,6 +28,8 @@ export interface FloorVizSlot {
 export interface FloorViz {
   slots: FloorVizSlot[];
   main_artery: [number, number][];
+  sub_path?: [number, number][];
+  entrances?: [number, number][];
   max_walk_mm: number;
 }
 

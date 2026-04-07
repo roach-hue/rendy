@@ -3,11 +3,18 @@
  * Canvas + 조명 + UI 렌더링만. 3D 로직은 Hook에서 주입.
  */
 import { Canvas } from "@react-three/fiber";
-import { OrbitControls, GizmoHelper, GizmoViewport } from "@react-three/drei";
+import { OrbitControls, GizmoHelper, GizmoViewport, Html } from "@react-three/drei";
 import { useState } from "react";
 import { useGLBScene } from "./useGLBScene";
 import { useSceneInteraction } from "./useSceneInteraction";
 import type { PlacedObject, FloorViz } from "../../api/placement";
+
+function formatLabel(objectType: string): string {
+  return objectType
+    .split("_")
+    .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+}
 
 type InteractMode = "orbit" | "drag" | "rotate";
 
@@ -20,6 +27,7 @@ interface SceneViewerProps {
 
 export function SceneViewer({ glbBase64, placed, floorViz, onObjectMove }: SceneViewerProps) {
   const [mode, setMode] = useState<InteractMode>("orbit");
+  const [showLabels, setShowLabels] = useState(true);
 
   return (
     <div>
@@ -34,6 +42,13 @@ export function SceneViewer({ glbBase64, placed, floorViz, onObjectMove }: Scene
             {m === "orbit" ? "카메라 회전" : m === "drag" ? "오브젝트 이동" : "오브젝트 회전"}
           </button>
         ))}
+        <button onClick={() => setShowLabels(v => !v)} style={{
+          ...styles.modeBtn,
+          background: showLabels ? "#1a1a1a" : "#fff",
+          color: showLabels ? "#fff" : "#333",
+        }}>
+          Labels {showLabels ? "ON" : "OFF"}
+        </button>
       </div>
 
       {/* 3D Canvas */}
@@ -44,7 +59,7 @@ export function SceneViewer({ glbBase64, placed, floorViz, onObjectMove }: Scene
           <directionalLight position={[-10, 15, -5]} intensity={1} />
           <hemisphereLight args={["#ffffff", "#666666", 1.0]} />
 
-          <GLBSceneWrapper glbBase64={glbBase64} placed={placed} floorViz={floorViz} mode={mode} onObjectMove={onObjectMove} />
+          <GLBSceneWrapper glbBase64={glbBase64} placed={placed} floorViz={floorViz} mode={mode} onObjectMove={onObjectMove} showLabels={showLabels} />
           <OrbitControls target={[5000, 0, 4000]} enabled={mode === "orbit"} />
           <gridHelper args={[30000, 30, "#bbb", "#ddd"]} />
           <GizmoHelper alignment="bottom-right" margin={[60, 60]}>
@@ -59,13 +74,38 @@ export function SceneViewer({ glbBase64, placed, floorViz, onObjectMove }: Scene
 /**
  * Canvas 내부 컴포넌트 — Hook은 Canvas 안에서만 호출 가능.
  */
-function GLBSceneWrapper({ glbBase64, placed, floorViz, mode, onObjectMove }: {
+function GLBSceneWrapper({ glbBase64, placed, floorViz, mode, onObjectMove, showLabels }: {
   glbBase64: string; placed?: PlacedObject[]; floorViz?: FloorViz; mode: InteractMode;
   onObjectMove?: (objectType: string, x: number, z: number, rotDeg: number) => void;
+  showLabels: boolean;
 }) {
   const { groupRef, objectMeshes } = useGLBScene(glbBase64, placed, floorViz);
   useSceneInteraction({ mode, objectMeshes, onObjectMove });
-  return <group ref={groupRef} />;
+  return (
+    <group ref={groupRef}>
+      {showLabels && placed?.map((obj, i) => (
+        <Html
+          key={`label-${i}`}
+          position={[obj.center_x_mm, (obj.height_mm || 1000) + 200, obj.center_y_mm]}
+          center
+          style={{ pointerEvents: "none" }}
+        >
+          <div style={{
+            background: "rgba(0,0,0,0.7)",
+            color: "#fff",
+            fontSize: 11,
+            fontWeight: 600,
+            padding: "2px 6px",
+            borderRadius: 4,
+            whiteSpace: "nowrap",
+            fontFamily: "monospace",
+          }}>
+            {formatLabel(obj.object_type)}
+          </div>
+        </Html>
+      ))}
+    </group>
+  );
 }
 
 const styles: Record<string, React.CSSProperties> = {

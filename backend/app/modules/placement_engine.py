@@ -20,6 +20,10 @@ from shapely.geometry import LineString, Point, Polygon
 from app.schemas.placement import Placement
 from app.modules.calculate_position import calculate_position
 
+# spine_rank 정렬: 핵심 기물은 adjacent 우선, 벽면 기물은 far 우선
+_SPINE_NEAR_FIRST = {"adjacent": 0, "nearby": 1, "far": 2}
+_SPINE_FAR_FIRST = {"far": 0, "nearby": 1, "adjacent": 2}
+
 
 def run_placement_loop(
     placements: list[Placement],
@@ -128,8 +132,16 @@ def run_placement_loop(
             failed.append({"object_type": placement.object_type, "reason": msg})
             continue
 
-        # slot 순회 — walk_mm 오름차순 (입구에 가까운 순)
-        sorted_slots = sorted(zone_slots.items(), key=lambda kv: kv[1].get("walk_mm", 0))
+        # slot 순회 — direction 기반 spine 정렬 분기
+        # wall_facing(선반/배너 등 벽면 기물) → far 우선 (반대편 벽면 분산)
+        # inward/center(핵심 기물) → adjacent 우선 (주동선 집중)
+        spine_order = (_SPINE_FAR_FIRST if placement.direction == "wall_facing"
+                       else _SPINE_NEAR_FIRST)
+        sorted_slots = sorted(
+            zone_slots.items(),
+            key=lambda kv: (spine_order.get(kv[1].get("spine_rank", "far"), 9),
+                            kv[1].get("walk_mm", 0)),
+        )
 
         placed = False
         for slot_key, slot in sorted_slots:

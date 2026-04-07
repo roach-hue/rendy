@@ -353,11 +353,74 @@ export function useGLBScene(glbBase64: string, placed?: PlacedObject[], floorViz
           }
         }
 
+        // Sub-path (부동선) — 얇은 복귀 루프
+        if (floorViz.sub_path && floorViz.sub_path.length >= 2) {
+          const SUB_Y = 7;
+          const subPoints = floorViz.sub_path.map(
+            ([x, y]) => new THREE.Vector3(x, SUB_Y, y)
+          );
+          const subCurve = new THREE.CatmullRomCurve3(subPoints, false, "centripetal", 0.3);
+          const subCurvePoints = subCurve.getPoints(Math.max(30, floorViz.sub_path.length * 4));
+
+          const subLineGeo = new THREE.BufferGeometry().setFromPoints(subCurvePoints);
+          const subLineMat = new THREE.LineBasicMaterial({
+            color: 0x66bb6a,      // 녹색 — 주동선(핑크)과 구분
+            transparent: true,
+            opacity: 0.6,
+            depthWrite: false,
+            depthTest: true,
+          });
+          const subLine = new THREE.Line(subLineGeo, subLineMat);
+          vizGroup.add(subLine);
+
+          console.debug(`[GLBScene] sub_path: ${floorViz.sub_path.length} nodes`);
+        }
+
+        // 입구 마커 — 바닥 밀착 2D 화살표 (Decal)
+        if (floorViz.entrances && floorViz.entrances.length > 0) {
+          const DECAL_Y = 6;
+          for (const [ex, ey] of floorViz.entrances) {
+            // 바닥 밀착 원형 링 (두께 없음)
+            const ringGeo = new THREE.RingGeometry(400, 600, 32);
+            ringGeo.rotateX(-Math.PI / 2);
+            const ringMat = new THREE.MeshBasicMaterial({
+              color: 0x00e676,
+              transparent: true,
+              opacity: 0.6,
+              depthWrite: false,
+              depthTest: true,
+              side: THREE.DoubleSide,
+            });
+            const ring = new THREE.Mesh(ringGeo, ringMat);
+            ring.position.set(ex, DECAL_Y, ey);
+            vizGroup.add(ring);
+
+            // "ENTRANCE" 텍스트 대신 얇은 십자선
+            const crossSize = 300;
+            const crossGeo = new THREE.BufferGeometry().setFromPoints([
+              new THREE.Vector3(ex - crossSize, DECAL_Y + 1, ey),
+              new THREE.Vector3(ex + crossSize, DECAL_Y + 1, ey),
+              new THREE.Vector3(ex, DECAL_Y + 1, ey - crossSize),
+              new THREE.Vector3(ex, DECAL_Y + 1, ey + crossSize),
+            ]);
+            const crossMat = new THREE.LineBasicMaterial({
+              color: 0x00e676,
+              transparent: true,
+              opacity: 0.8,
+              depthWrite: false,
+            });
+            const cross = new THREE.LineSegments(crossGeo, crossMat);
+            vizGroup.add(cross);
+          }
+          console.debug(`[GLBScene] entrances: ${floorViz.entrances.length} decals`);
+        }
+
         groupRef.current!.add(vizGroup);
         vizObjects.push(vizGroup);
 
         console.debug(`[GLBScene] floor viz: ${floorViz.slots.length} zone discs, `
-          + `${floorViz.main_artery?.length ?? 0} artery nodes`);
+          + `${floorViz.main_artery?.length ?? 0} artery nodes, `
+          + `${floorViz.sub_path?.length ?? 0} sub_path nodes`);
       }
 
       vizRef.current = vizObjects;
