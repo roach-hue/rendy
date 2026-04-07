@@ -9,7 +9,7 @@ DB: Supabase geometry_cache 테이블 (Get or Create).
 Fallback: DB 미연결 시 인메모리 캐시.
 """
 import hashlib
-import os
+
 from typing import Optional
 
 # 등신대/배너 등 Plane형 기물의 최소 두께 (mm)
@@ -103,13 +103,10 @@ def _db_get_or_create(
 ) -> Optional[dict]:
     """Supabase geometry_cache Upsert. 실패 시 None (인메모리 fallback)."""
     try:
-        url = os.getenv("SUPABASE_URL")
-        key = os.getenv("SUPABASE_KEY")
-        if not url or not key:
+        from app.api.supabase_client import get_client
+        client = get_client()
+        if not client:
             return None
-
-        from supabase import create_client
-        client = create_client(url, key)
 
         # GET: 기존 해시 조회
         existing = client.table("geometry_cache").select("*").eq("hash_key", hash_key).execute()

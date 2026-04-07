@@ -19,6 +19,7 @@ from shapely.geometry import LineString, Point, Polygon
 
 from app.schemas.placement import Placement
 from app.modules.calculate_position import calculate_position
+from app.agents.corridor_graph import nearest_node as _nearest_node
 
 # spine_rank 정렬: 핵심 기물은 adjacent 우선, 벽면 기물은 far 우선
 _SPINE_NEAR_FIRST = {"adjacent": 0, "nearby": 1, "far": 2}
@@ -74,10 +75,8 @@ def run_placement_loop(
     static_cache = unary_union(static_obstacles) if static_obstacles else None
 
     # slot 목록 추출
-    slots = {
-        k: v for k, v in space_data.items()
-        if isinstance(v, dict) and "zone_label" in v and k != "floor"
-    }
+    from app.schemas.space_data import extract_slots
+    slots = extract_slots(space_data)
 
     # NetworkX 통로 그래프 초기화 (C7.5 검증용)
     corridor_graph, corridor_nodes, entrance_node = _init_corridor_graph(
@@ -304,7 +303,7 @@ def _init_corridor_graph(
         return None, None, None
 
     try:
-        from app.agents.corridor_graph import build_corridor_graph, nearest_node as _nearest_node
+        from app.agents.corridor_graph import build_corridor_graph
 
         dead_zones = space_data.get("dead_zones", [])
         G, nodes = build_corridor_graph(floor_poly, dead_zones=dead_zones)
@@ -324,15 +323,11 @@ def _init_corridor_graph(
 
 
 def _find_entrance_from_space_data(space_data: dict) -> tuple[float, float] | None:
-    """space_data에서 entrance mm 좌표 추출 (walk_mm 최소 slot)."""
-    min_walk = float("inf")
-    entrance = None
-    for key, val in space_data.items():
-        if isinstance(val, dict) and "walk_mm" in val:
-            if val["walk_mm"] < min_walk:
-                min_walk = val["walk_mm"]
-                entrance = (val.get("x_mm", 0), val.get("y_mm", 0))
-    return entrance
+    """space_data에서 entrance mm 좌표 추출."""
+    coords = space_data.get("_entrance_coords_mm", [])
+    if coords:
+        return coords[0]
+    return None
 
 
 def _check_choke_point_created(
@@ -415,7 +410,6 @@ def _check_corridor_connectivity(
     for slot_key, slot_val in slots.items():
         if slot_key in placed_slot_keys:
             continue
-        from app.agents.corridor_graph import nearest_node as _nearest_node
         slot_node = _nearest_node(nodes, (slot_val["x_mm"], slot_val["y_mm"]))
         if slot_node in G and nx.has_path(G, entrance_node, slot_node):
             return True  # 최소 1개 slot 도달 가능 → 통로 유지

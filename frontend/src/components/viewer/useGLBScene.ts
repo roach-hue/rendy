@@ -221,18 +221,14 @@ export function useGLBScene(glbBase64: string, placed?: PlacedObject[], floorViz
         vizGroup.name = "floor_viz_group";
 
         const maxWalk = floorViz.max_walk_mm || 1;
-        const ZONE_COLORS_3D: Record<string, number> = {
-          entrance_zone: 0x4caf50,
-          mid_zone: 0xff9800,
-          deep_zone: 0x2196f3,
-        };
+        // ZONE_COLORS 재사용 (모듈 레벨 상수)
 
         // 공유 geometry (32 세그먼트, XZ 평면에 눕힘)
         const discGeo = new THREE.CircleGeometry(400, 32);
         discGeo.rotateX(-Math.PI / 2);
 
         for (const slot of floorViz.slots) {
-          const color = ZONE_COLORS_3D[slot.zone_label] ?? 0x999999;
+          const color = ZONE_COLORS[slot.zone_label] ?? 0x999999;
           const walkRatio = slot.walk_mm / maxWalk;
           const opacity = 0.15 + (1 - walkRatio) * 0.25;
 
@@ -452,16 +448,9 @@ export function useGLBScene(glbBase64: string, placed?: PlacedObject[], floorViz
         if (im.material instanceof THREE.Material) im.material.dispose();
       }
       instancedRef.current = [];
-      // floor viz dispose
+      // floor viz dispose (재귀 순회)
       for (const obj of vizRef.current) {
-        if (obj instanceof THREE.Mesh) {
-          obj.geometry?.dispose();
-          if (obj.material instanceof THREE.Material) obj.material.dispose();
-        }
-        if (obj instanceof THREE.Line) {
-          obj.geometry?.dispose();
-          if (obj.material instanceof THREE.Material) obj.material.dispose();
-        }
+        _disposeObject(obj);
       }
       vizRef.current = [];
     };

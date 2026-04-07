@@ -71,6 +71,14 @@ def make_empty_space_data() -> dict:
     }
 
 
+def extract_slots(space_data: dict) -> dict[str, dict]:
+    """space_data에서 배치 슬롯만 추출. 7곳에서 반복되던 필터 로직 통합."""
+    return {
+        k: v for k, v in space_data.items()
+        if isinstance(v, dict) and "zone_label" in v and k != "floor"
+    }
+
+
 def assign_zone_by_walk_mm(walk_mm: float, zones: dict) -> str:
     """walk_mm 값으로 zone_label 반환. Agent 3 출력 2차 검증에 사용."""
     for zone_label, threshold in zones.items():

@@ -3,7 +3,6 @@
 Agent 2 → Object Selection → Agent 3 → Placement Engine → Verification → Report → GLB
 """
 import base64
-import traceback
 
 from app.agents.agent2_back import run as run_agent2
 from app.agents.agent3_placement import plan_placement
@@ -226,25 +225,19 @@ def _provision_missing_assets(
         eligible.append(asset)
         print(f"[GAP] Provisioned: {obj_type} → {spec['width_mm']}x{spec['depth_mm']}x{spec['height_mm']}mm ({spec['category']})")
 
-    # Supabase DB INSERT (영속화)
+    # Supabase DB INSERT (영속화) — object_crud 위임
     try:
-        url = os.getenv("SUPABASE_URL")
-        key = os.getenv("SUPABASE_KEY")
-        if url and key:
-            from supabase import create_client
-            client = create_client(url, key)
-            for asset in new_assets:
-                row = {
-                    "object_type": asset["object_type"],
-                    "brand_id": asset["brand_id"],
-                    "width_mm": asset["width_mm"],
-                    "depth_mm": asset["depth_mm"],
-                    "height_mm": asset["height_mm"],
-                    "category": asset["category"],
-                    "material": asset["material"],
-                }
-                client.table("furniture_standards").insert(row).execute()
-                print(f"[GAP] DB INSERT: {asset['object_type']} → furniture_standards")
+        from app.api.object_crud import create_object
+        for asset in new_assets:
+            create_object({
+                "object_type": asset["object_type"],
+                "brand_id": asset["brand_id"],
+                "width_mm": asset["width_mm"],
+                "depth_mm": asset["depth_mm"],
+                "height_mm": asset["height_mm"],
+                "category": asset["category"],
+                "material": asset["material"],
+            })
     except Exception as e:
         print(f"[GAP] DB INSERT failed: {e} — in-memory only")
 
@@ -255,15 +248,12 @@ def _provision_missing_assets(
 def _build_floor_viz(space_data: dict, placed: list[dict] | None = None) -> dict:
     """3D 바닥 동선 시각화용 데이터 추출 + 부동선(Sub-path) 생성."""
     # slot별 walk_mm + zone_label + 좌표
-    slots = []
-    for key, val in space_data.items():
-        if isinstance(val, dict) and "zone_label" in val and key != "floor":
-            slots.append({
-                "x_mm": val.get("x_mm", 0),
-                "y_mm": val.get("y_mm", 0),
-                "walk_mm": val.get("walk_mm", 0),
-                "zone_label": val.get("zone_label", "unknown"),
-            })
+    from app.schemas.space_data import extract_slots
+    slots = [
+        {"x_mm": v.get("x_mm", 0), "y_mm": v.get("y_mm", 0),
+         "walk_mm": v.get("walk_mm", 0), "zone_label": v.get("zone_label", "unknown")}
+        for v in extract_slots(space_data).values()
+    ]
 
     # Main Artery(Spine) 좌표 리스트
     main_artery_coords = []
@@ -398,29 +388,8 @@ def _build_sub_path(
     if not nodes:
         return []
 
-    all_coords: list[tuple[float, float]] = []
-    for i in range(len(waypoints) - 1):
-        start_node = nearest_node(nodes, waypoints[i])
-        end_node = nearest_node(nodes, waypoints[i + 1])
-
-        if start_node == end_node:
-            if not all_coords:
-                all_coords.append(nodes[start_node])
-            continue
-
-        try:
-            path = nx.shortest_path(G, start_node, end_node, weight="weight")
-            segment = [nodes[n] for n in path]
-
-            if all_coords and segment:
-                if (abs(all_coords[-1][0] - segment[0][0]) < 1 and
-                        abs(all_coords[-1][1] - segment[0][1]) < 1):
-                    segment = segment[1:]
-            all_coords.extend(segment)
-        except (nx.NetworkXNoPath, nx.NodeNotFound):
-            if not all_coords:
-                all_coords.append(waypoints[i])
-            all_coords.append(waypoints[i + 1])
+    from app.agents.walk_mm_calculator import _connect_waypoints_via_grid
+    all_coords = _connect_waypoints_via_grid(waypoints, G, nodes)
 
     # 시작/끝점을 실제 입구 좌표로 치환 (그리드 스냅 오차 제거)
     entrance_coords_mm = space_data.get("_entrance_coords_mm", [])
@@ -449,10 +418,8 @@ def _build_summary(space_data, placed, dropped, fallback_used, verification):
         z = p.get("zone_label", "unknown")
         zone_dist[z] = zone_dist.get(z, 0) + 1
 
-    slot_count = sum(
-        1 for k, v in space_data.items()
-        if isinstance(v, dict) and "zone_label" in v and k != "floor"
-    )
+    from app.schemas.space_data import extract_slots
+    slot_count = len(extract_slots(space_data))
     total = len(placed) + len(dropped)
 
     return SummaryReport(

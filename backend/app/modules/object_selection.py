@@ -4,16 +4,7 @@
 Supabase furniture_standards 테이블에서 brand_id로 조회 후
 공간 제약 + 브랜드 금지 소재 필터링.
 """
-import os
-from supabase import create_client
-
-
-def _get_supabase():
-    url = os.getenv("SUPABASE_URL")
-    key = os.getenv("SUPABASE_KEY")
-    if not url or not key:
-        raise RuntimeError("SUPABASE_URL / SUPABASE_KEY 환경변수 없음")
-    return create_client(url, key)
+from app.api.supabase_client import get_client as _get_supabase
 
 
 def select_eligible_objects(

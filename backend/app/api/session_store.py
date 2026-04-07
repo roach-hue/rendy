@@ -11,18 +11,10 @@ Key-Value 캐시 스토어. 배치 결과를 단일 JSONB로 저장.
   );
 """
 import json
-import os
+
+from app.api.supabase_client import get_client as _get_client
 
 _TABLE = "session_cache"
-
-
-def _get_client():
-    url = os.getenv("SUPABASE_URL")
-    key = os.getenv("SUPABASE_KEY")
-    if not url or not key:
-        return None
-    from supabase import create_client
-    return create_client(url, key)
 
 
 def save_session(session_key: str, placement_result: dict) -> bool:

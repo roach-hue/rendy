@@ -1,10 +1,5 @@
 """오브젝트 CRUD — Supabase furniture_standards 테이블."""
-import os
-from supabase import create_client
-
-
-def _get_client():
-    return create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
+from app.api.supabase_client import get_client as _get_client
 
 
 def list_objects(brand_id: str = "sanrio") -> list:
