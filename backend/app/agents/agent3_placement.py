@@ -161,6 +161,11 @@ IQI_RECOMMENDED_COUNT = {recommended_count}
 ## 배치 가능 오브젝트 (후보)
 {json.dumps(obj_list, ensure_ascii=False, indent=2)}
 
+## 필수 기물 자동 생성 (GAP)
+위 후보 목록에 없더라도, VMD 표준에 필수인 기물은 직접 제안하라. 제안하면 시스템이 자동 생성한다.
+필수 기물: pos_counter(계산대) — R2 규칙에 따라 deep_zone 최후방에 반드시 1개 배치.
+후보 목록에 pos_counter가 없으면 직접 object_type="pos_counter"로 기획에 포함하라.
+
 ## 브랜드 제약
 {brand_text}
 

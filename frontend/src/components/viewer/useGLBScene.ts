@@ -161,10 +161,10 @@ export function useGLBScene(glbBase64: string, placed?: PlacedObject[], floorViz
             const obj = group.objects[i];
             const h = obj.height_mm || 1000;
 
-            // Y-up 좌표계: (center_x_mm, h/2, center_y_mm)
-            position.set(obj.center_x_mm, h / 2, obj.center_y_mm);
+            // Y-up, X반전: (-center_x_mm, h/2, center_y_mm)
+            position.set(-obj.center_x_mm, h / 2, obj.center_y_mm);
 
-            // Y축 회전 (top-view, 부호 반전 = GLB exporter와 동일)
+            // Y축 회전 (GLB exporter와 동일 부호)
             const radY = -obj.rotation_deg * (Math.PI / 180);
             quaternion.setFromAxisAngle(new THREE.Vector3(0, 1, 0), radY);
 
@@ -202,7 +202,7 @@ export function useGLBScene(glbBase64: string, placed?: PlacedObject[], floorViz
             proxy.userData.placedObject = obj;
 
             const h = obj.height_mm || 1000;
-            proxy.position.set(obj.center_x_mm, h / 2, obj.center_y_mm);
+            proxy.position.set(-obj.center_x_mm, h / 2, obj.center_y_mm);
             const radY = -obj.rotation_deg * (Math.PI / 180);
             proxy.quaternion.setFromAxisAngle(new THREE.Vector3(0, 1, 0), radY);
             proxy.updateMatrixWorld(true);
@@ -243,7 +243,7 @@ export function useGLBScene(glbBase64: string, placed?: PlacedObject[], floorViz
 
           const disc = new THREE.Mesh(discGeo, mat);
           // mm 단위 그대로, Y=6mm (바닥 상면 Y=5 바로 위)
-          disc.position.set(slot.x_mm, 6, slot.y_mm);
+          disc.position.set(-slot.x_mm, 6, slot.y_mm);
           disc.renderOrder = 999;  // 바닥/벽보다 나중에 렌더링
           vizGroup.add(disc);
         }
@@ -255,7 +255,7 @@ export function useGLBScene(glbBase64: string, placed?: PlacedObject[], floorViz
 
           // 원본 노드 → CatmullRomCurve3 부드러운 곡선
           const controlPoints = floorViz.main_artery.map(
-            ([x, y]) => new THREE.Vector3(x, ROAD_Y, y)
+            ([x, y]) => new THREE.Vector3(-x, ROAD_Y, y)
           );
           const curve = new THREE.CatmullRomCurve3(controlPoints, false, "centripetal", 0.5);
           const SEGMENTS = Math.max(40, floorViz.main_artery.length * 8);
@@ -336,8 +336,8 @@ export function useGLBScene(glbBase64: string, placed?: PlacedObject[], floorViz
           // 유입 동선 화살표: 백엔드 raw 노드 기준 (보간 아닌 원본 좌표)
           const rawPts = floorViz.main_artery;
           if (rawPts.length >= 2) {
-            const rawEnd = new THREE.Vector3(rawPts[rawPts.length - 1][0], ROAD_Y + 3, rawPts[rawPts.length - 1][1]);
-            const rawPrev = new THREE.Vector3(rawPts[rawPts.length - 2][0], ROAD_Y + 3, rawPts[rawPts.length - 2][1]);
+            const rawEnd = new THREE.Vector3(-rawPts[rawPts.length - 1][0], ROAD_Y + 3, rawPts[rawPts.length - 1][1]);
+            const rawPrev = new THREE.Vector3(-rawPts[rawPts.length - 2][0], ROAD_Y + 3, rawPts[rawPts.length - 2][1]);
             const dir = new THREE.Vector3().subVectors(rawEnd, rawPrev).normalize();
             const arrowLen = Math.min(1200, maxWalk * 0.1);
             const arrowOrigin = rawEnd.clone().sub(dir.clone().multiplyScalar(arrowLen));
@@ -353,7 +353,7 @@ export function useGLBScene(glbBase64: string, placed?: PlacedObject[], floorViz
         if (floorViz.sub_path && floorViz.sub_path.length >= 2) {
           const SUB_Y = 7;
           const subPoints = floorViz.sub_path.map(
-            ([x, y]) => new THREE.Vector3(x, SUB_Y, y)
+            ([x, y]) => new THREE.Vector3(-x, SUB_Y, y)
           );
           const subCurve = new THREE.CatmullRomCurve3(subPoints, false, "centripetal", 0.3);
           const subCurvePoints = subCurve.getPoints(Math.max(30, floorViz.sub_path.length * 4));
@@ -388,16 +388,16 @@ export function useGLBScene(glbBase64: string, placed?: PlacedObject[], floorViz
               side: THREE.DoubleSide,
             });
             const ring = new THREE.Mesh(ringGeo, ringMat);
-            ring.position.set(ex, DECAL_Y, ey);
+            ring.position.set(-ex, DECAL_Y, ey);
             vizGroup.add(ring);
 
             // "ENTRANCE" 텍스트 대신 얇은 십자선
             const crossSize = 300;
             const crossGeo = new THREE.BufferGeometry().setFromPoints([
-              new THREE.Vector3(ex - crossSize, DECAL_Y + 1, ey),
-              new THREE.Vector3(ex + crossSize, DECAL_Y + 1, ey),
-              new THREE.Vector3(ex, DECAL_Y + 1, ey - crossSize),
-              new THREE.Vector3(ex, DECAL_Y + 1, ey + crossSize),
+              new THREE.Vector3(-ex - crossSize, DECAL_Y + 1, ey),
+              new THREE.Vector3(-ex + crossSize, DECAL_Y + 1, ey),
+              new THREE.Vector3(-ex, DECAL_Y + 1, ey - crossSize),
+              new THREE.Vector3(-ex, DECAL_Y + 1, ey + crossSize),
             ]);
             const crossMat = new THREE.LineBasicMaterial({
               color: 0x00e676,

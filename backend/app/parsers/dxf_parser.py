@@ -63,8 +63,8 @@ EMERGENCY_KEYWORDS = re.compile(
 
 # 접근 금지 구역 텍스트 키워드
 INACCESSIBLE_KEYWORDS = re.compile(
-    r"staff\s*only|사무실|창고|화장실|기계실|전기실|계단실|"
-    r"storage|restroom|toilet|utility|mechanical|stairwell",
+    r"staff\s*only|staff\s*zone|staff\s*area|사무실|창고|화장실|기계실|전기실|계단실|"
+    r"back\s*of\s*house|boh|storage|restroom|toilet|utility|mechanical|stairwell",
     re.IGNORECASE,
 )
 

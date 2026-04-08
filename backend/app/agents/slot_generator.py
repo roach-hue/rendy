@@ -11,7 +11,7 @@ def max_object_width(poly: Polygon) -> float:
     return round(short_side * 0.4)
 
 
-DECOMPRESSION_RADIUS_MM = 1500
+DECOMPRESSION_RADIUS_MM = 1500  # 기본값 — generate_edge_slots에서 도면 비례로 재계산
 
 
 def generate_edge_slots(
@@ -38,14 +38,18 @@ def generate_edge_slots(
     print(f"[Agent2] polygon vertices: {len(coords)-1}, bounds: {usable_poly.bounds}, "
           f"step_mm={step_mm} (max_object_w={max_w}mm), perimeter={total_len:.0f}mm")
 
-    # 전이 지대: 각 입구 반경 DECOMPRESSION_RADIUS_MM 내 슬롯 파괴
+    # 전이 지대: 도면 비례 반경 (단변의 10%, 최소 500mm, 최대 2000mm)
+    minx, miny, maxx, maxy = usable_poly.bounds
+    short_side = min(maxx - minx, maxy - miny)
+    decomp_radius = max(500, min(2000, short_side * 0.10))
+
     decompression_zones: list[Point] = []
     if entrances:
         for ent in entrances:
             ex = getattr(ent, "x_px", ent[0] if isinstance(ent, (list, tuple)) else 0)
             ey = getattr(ent, "y_px", ent[1] if isinstance(ent, (list, tuple)) else 0)
             decompression_zones.append(Point(ex, ey))
-        print(f"[SlotGen] decompression zones: {len(decompression_zones)} entrances, radius={DECOMPRESSION_RADIUS_MM}mm")
+        print(f"[SlotGen] decompression zones: {len(decompression_zones)} entrances, radius={decomp_radius:.0f}mm (short_side={short_side:.0f}mm)")
 
     # 외벽 경로를 step_mm 간격으로 순회 (곡선 자동 추종)
     slot_idx = 0
@@ -63,7 +67,7 @@ def generate_edge_slots(
 
         # 전이 지대: 입구 반경 내 슬롯 파괴
         in_decompression = any(
-            dz.distance(pt_on_wall) < DECOMPRESSION_RADIUS_MM
+            dz.distance(pt_on_wall) < decomp_radius
             for dz in decompression_zones
         )
         if in_decompression:
@@ -179,7 +183,10 @@ def generate_interior_slots(
 
     inner_wall_buffers = [w.buffer(inner_wall_buffer_mm) for w in inner_walls if w.length > 0]
 
-    # 전이 지대 입구 좌표
+    # 전이 지대: 도면 비례 반경 (단변의 10%, 최소 500mm, 최대 2000mm)
+    short_side = min(maxx - minx, maxy - miny)
+    decomp_radius = max(500, min(2000, short_side * 0.10))
+
     decomp_pts: list[Point] = []
     if entrances:
         for ent in entrances:
@@ -204,7 +211,7 @@ def generate_interior_slots(
             if usable_poly.exterior.distance(pt) < min_wall_dist:
                 continue
             # 전이 지대 내 슬롯 파괴
-            if any(dp.distance(pt) < DECOMPRESSION_RADIUS_MM for dp in decomp_pts):
+            if any(dp.distance(pt) < decomp_radius for dp in decomp_pts):
                 continue
             if any(dz.contains(pt) for dz in dead_zones):
                 continue

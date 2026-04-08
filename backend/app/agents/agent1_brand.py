@@ -35,7 +35,7 @@ _LABEL_PROMPT = """다음은 브랜드 메뉴얼에서 추출한 (수치, 단위
 - object_pair_rules: 특정 오브젝트 쌍 배치 규칙 (자연어)
 
 입력:
-{items}
+{items}  ← _regex_llm_extract() L115~127에서 Regex 추출한 [(value_mm, context)] 리스트
 
 출력 형식 (JSON만, 다른 텍스트 금지):
 {{

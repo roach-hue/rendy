@@ -86,7 +86,7 @@ function GLBSceneWrapper({ glbBase64, placed, floorViz, mode, onObjectMove, show
       {showLabels && placed?.map((obj, i) => (
         <Html
           key={`label-${i}`}
-          position={[obj.center_x_mm, (obj.height_mm || 1000) + 200, obj.center_y_mm]}
+          position={[-obj.center_x_mm, (obj.height_mm || 1000) + 200, obj.center_y_mm]}
           center
           style={{ pointerEvents: "none" }}
         >

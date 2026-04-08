@@ -61,18 +61,7 @@ def assign_walk_mm(
         except nx.NetworkXError:
             all_lengths.append({})
 
-    minx, miny, maxx, maxy = usable_poly.bounds
-    max_walk = max(maxx - minx, maxy - miny)
-    zone_1 = max_walk * 0.33
-    zone_2 = max_walk * 0.66
-    zones = {
-        "entrance_zone": {"walk_mm_min": 0, "walk_mm_max": zone_1},
-        "mid_zone": {"walk_mm_min": zone_1, "walk_mm_max": zone_2},
-        "deep_zone": {"walk_mm_min": zone_2, "walk_mm_max": float("inf")},
-    }
-
     # MAIN_DOOR 기준 Dijkstra = zone_label 산출용 (VMD 위계 유지)
-    # walk_mm = min(전체 입구) (접근성), zone_label = MAIN 기준 (동선 위계)
     main_idx = 0
     for i, t in enumerate(entrance_types):
         if t == "MAIN_DOOR":
@@ -80,21 +69,41 @@ def assign_walk_mm(
             break
     main_lengths = all_lengths[main_idx] if main_idx < len(all_lengths) else {}
 
+    # 1차 패스: walk_mm 계산 + 실제 최대 도달 거리 수집
+    actual_max_walk = 0.0
     for slot in slots.values():
         slot_node = nearest_node(nodes, (slot["x_mm"], slot["y_mm"]))
-        # walk_mm = min(모든 입구로부터의 거리) — 접근성
         min_walk = float("inf")
         for lengths in all_lengths:
             w = lengths.get(slot_node, float("inf"))
             if w < min_walk:
                 min_walk = w
         if min_walk == float("inf"):
-            min_walk = max_walk * 2
+            min_walk = 0.0
         slot["walk_mm"] = round(min_walk)
 
-        # zone_label = MAIN_DOOR 기준 거리 — VMD 위계 (입구→mid→deep 단방향)
-        main_walk = main_lengths.get(slot_node, max_walk * 2)
-        slot["zone_label"] = assign_zone_by_walk_mm(main_walk, zones)
+        # MAIN 기준 거리 임시 저장 (zone_label은 2차 패스에서 부여)
+        slot["_main_walk"] = main_lengths.get(slot_node, 0.0)
+        if slot["_main_walk"] > actual_max_walk:
+            actual_max_walk = slot["_main_walk"]
+
+    # 2차 패스: 실제 도달 거리 기반 zone 경계 산출 + zone_label 부여
+    if actual_max_walk < 1:
+        actual_max_walk = max(usable_poly.bounds[2] - usable_poly.bounds[0],
+                              usable_poly.bounds[3] - usable_poly.bounds[1])
+    zone_1 = actual_max_walk * 0.33
+    zone_2 = actual_max_walk * 0.66
+    zones = {
+        "entrance_zone": {"walk_mm_min": 0, "walk_mm_max": zone_1},
+        "mid_zone": {"walk_mm_min": zone_1, "walk_mm_max": zone_2},
+        "deep_zone": {"walk_mm_min": zone_2, "walk_mm_max": float("inf")},
+    }
+    print(f"[Agent2] zone thresholds: entrance<{zone_1:.0f}, mid<{zone_2:.0f}, "
+          f"deep≥{zone_2:.0f} (actual_max={actual_max_walk:.0f}mm)")
+
+    for slot in slots.values():
+        slot["zone_label"] = assign_zone_by_walk_mm(slot["_main_walk"], zones)
+        del slot["_main_walk"]  # 임시 키 제거
 
     # ── Main Artery: 관통 동선 식별 ──────────────────────────────────────────
     main_artery = _compute_main_artery(

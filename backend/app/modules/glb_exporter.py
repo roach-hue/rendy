@@ -51,8 +51,10 @@ def export_glb(
     """
     scene = trimesh.Scene()
 
-    # 바닥 평면
-    floor_poly = space_data.get("floor", {}).get("polygon")
+    # 바닥 평면 — Shapely polygon을 X반전하여 좌우 거울상 해소
+    from shapely import affinity
+    floor_poly_raw = space_data.get("floor", {}).get("polygon")
+    floor_poly = affinity.scale(floor_poly_raw, xfact=-1, yfact=1, origin=(0, 0)) if floor_poly_raw else None
     if floor_poly:
         floor_mesh = _create_floor(floor_poly)
         scene.add_geometry(floor_mesh, node_name="floor")
@@ -118,8 +120,8 @@ def _create_floor(floor_poly) -> trimesh.Trimesh:
     try:
         floor = trimesh.creation.extrude_polygon(floor_poly, height=10)
 
-        # Y↔Z 축 swap: extrude의 XY평면 → Three.js의 XZ평면 (Y-up)
-        # (px, py, z) → (px, z, py) — 벽 좌표 (x, height, y)와 일치
+        # Y↔Z 축 swap: Shapely XY평면 → Three.js XZ평면 (Y-up)
+        # X반전은 Shapely polygon 레벨에서 이미 적용됨 (export_glb)
         import numpy as np
         swap_yz = np.array([
             [1, 0, 0, 0],
@@ -128,8 +130,8 @@ def _create_floor(floor_poly) -> trimesh.Trimesh:
             [0, 0, 0, 1],
         ], dtype=float)
         floor.apply_transform(swap_yz)
-        floor.apply_translation([0, -5, 0])  # 바닥면 Y=0 정렬
-        floor.fix_normals()  # 축 swap으로 뒤집힌 법선 복구
+        floor.apply_translation([0, -5, 0])
+        floor.fix_normals()
 
         _apply_color(floor, FLOOR_COLOR)
         print(f"[GLBExporter] floor: extrude_polygon ({len(floor.faces)} faces), "
@@ -140,7 +142,7 @@ def _create_floor(floor_poly) -> trimesh.Trimesh:
         w = maxx - minx
         d = maxy - miny
         floor = trimesh.creation.box(extents=[w, 10, d])
-        floor.apply_translation([cx, -5, cy])
+        floor.apply_translation([-cx, -5, cy])  # polygon이 이미 X반전됨 → cx도 반전 상태
         _apply_color(floor, FLOOR_COLOR)
         return floor
 
@@ -158,7 +160,7 @@ def _create_walls(floor_poly, height_mm: float) -> list[trimesh.Trimesh]:
         if length < 10:
             continue
 
-        # 벽 중심
+        # 벽 중심 — polygon이 이미 X반전됨
         cx = (x1 + x2) / 2
         cy = (y1 + y2) / 2
         angle = math.atan2(y2 - y1, x2 - x1)
@@ -166,11 +168,8 @@ def _create_walls(floor_poly, height_mm: float) -> list[trimesh.Trimesh]:
         wall = trimesh.creation.box(
             extents=[length, height_mm, wall_thickness],
         )
-        # Y-up 좌표계: (X, Y=height, Z=depth)
-        # 회전: Y축 기준 (top-view 회전)
         rot = trimesh.transformations.rotation_matrix(-angle, [0, 1, 0])
         wall.apply_transform(rot)
-        # 위치 이동: (cx, height/2, cy)
         wall.apply_translation([cx, height_mm / 2, cy])
         _apply_color(wall, WALL_COLOR)
         walls.append(wall)
@@ -228,8 +227,8 @@ def _create_object_mesh(obj: dict, ceiling_h: float) -> trimesh.Trimesh:
         )
         mesh.apply_transform(rot)
 
-    # 위치: (cx, h/2, cy) — 바닥에 놓임
-    mesh.apply_translation([cx, h / 2, cy])
+    # 위치: (-cx, h/2, cy) — X반전 (polygon과 동일 기준)
+    mesh.apply_translation([-cx, h / 2, cy])
 
     # zone별 색상
     zone = obj.get("zone_label", "unknown")

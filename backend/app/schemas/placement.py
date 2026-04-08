@@ -22,11 +22,13 @@ class Placement(BaseModel):
 
     @field_validator("placed_because")
     @classmethod
-    def no_mm_values_in_narrative(cls, v: str) -> str:
+    def strip_mm_values_from_narrative(cls, v: str) -> str:
+        """mm 수치를 에러 대신 자동 제거 — Circuit Breaker 낭비 방지."""
         import re
-        if re.search(r"\d+\s*mm", v, re.IGNORECASE):
-            raise ValueError("placed_because에 mm 수치 포함 금지 — LLM은 방향만 결정")
-        return v
+        cleaned = re.sub(r"\d+\s*mm", "", v, flags=re.IGNORECASE).strip()
+        if cleaned != v:
+            print(f"[Placement] placed_because에서 mm 수치 자동 제거: {v[:80]}")
+        return cleaned if cleaned else "배치 기획 의도"
 
     @field_validator("direction")
     @classmethod
